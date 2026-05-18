@@ -54,6 +54,7 @@ Configure Space secrets:
 
 \`\`\`text
 CODEXMOBILE_RELAY_SECRET=<at-least-32-character-random-secret>
+CODEXMOBILE_RELAY_PREVIOUS_SECRET=<optional-previous-secret-during-rotation>
 \`\`\`
 
 Do not commit relay secrets, browser tokens, pairing codes, logs, or local state.

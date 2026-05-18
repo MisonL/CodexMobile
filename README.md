@@ -94,6 +94,8 @@ CODEXMOBILE_MODE=relay
 HOST=0.0.0.0
 PORT=7860
 CODEXMOBILE_RELAY_SECRET=<至少 32 字符的随机密钥>
+# 可选：只在轮换窗口内设置旧密钥，完成迁移后清空
+CODEXMOBILE_RELAY_PREVIOUS_SECRET=<上一组随机密钥>
 ```
 
 Space 启动命令：
@@ -190,7 +192,8 @@ npm run start:env
 - `CODEXMOBILE_CLIPROXY_MANAGEMENT_URL`：CLIProxyAPI 管理接口地址
 - `CODEXMOBILE_CLIPROXY_MANAGEMENT_KEY`：CLIProxyAPI 管理密钥
 - `CODEXMOBILE_RELAY_URL`：Mac connector 连接的 Space WebSocket 地址，仅 `npm run relay:mac` 使用
-- `CODEXMOBILE_RELAY_SECRET`：Space 和 Mac connector 共享的 relay 密钥，至少 32 字符
+- `CODEXMOBILE_RELAY_SECRET`：Space 和 Mac connector 共享的当前 relay 密钥，至少 32 字符
+- `CODEXMOBILE_RELAY_PREVIOUS_SECRET`：可选旧 relay 密钥，只用于 secret rotation grace window，完成迁移后应清空
 - `CODEXMOBILE_RELAY_LOCAL_URL`：Mac connector 转发到的本地 CodexMobile 地址，默认 `http://127.0.0.1:3321`
 - `CODEXMOBILE_RELAY_PENDING_REQUESTS_MAX`：Space 全局 pending relay 请求上限，默认 `64`
 - `CODEXMOBILE_RELAY_BROWSER_PENDING_REQUESTS_MAX`：单浏览器 token pending relay 请求上限，默认 `6`

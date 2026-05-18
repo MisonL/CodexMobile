@@ -20,6 +20,7 @@ import {
 } from './relay-smoke-support.mjs';
 
 const secret = process.env.CODEXMOBILE_RELAY_SECRET || 'test-relay-secret-0123456789abcdef';
+const previousSecret = process.env.CODEXMOBILE_RELAY_PREVIOUS_SECRET || 'previous-relay-secret-0123456789abcdef';
 const port = Number(process.env.CODEXMOBILE_RELAY_TEST_PORT || 9786);
 const baseUrl = `http://127.0.0.1:${port}`;
 const relayUrl = `ws://127.0.0.1:${port}/relay/mac`;
@@ -91,6 +92,7 @@ function spawnRelay() {
       PORT: String(port),
       CODEXMOBILE_MODE: 'relay',
       CODEXMOBILE_RELAY_SECRET: secret,
+      CODEXMOBILE_RELAY_PREVIOUS_SECRET: previousSecret,
       CODEXMOBILE_RELAY_HEARTBEAT_MS: '100',
       CODEXMOBILE_RELAY_IDLE_HEARTBEAT_MS: '500',
       CODEXMOBILE_RELAY_REQUEST_TIMEOUT_MS: '3000',
@@ -413,6 +415,24 @@ async function verifyRelayStartup() {
   }
 }
 
+async function verifyRelaySecretRotationGraceWindow() {
+  const previousMac = await connectMac({ relayUrl, secret: previousSecret, reachable: true });
+  previousMac.ws.close();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  const currentMac = await connectMac({ relayUrl, secret, reachable: true });
+  const result = await request('/api/status', { headers: { authorization: 'Bearer valid-token' } });
+  currentMac.ws.close();
+  if (
+    result.response.status !== 200 ||
+    result.data.macConnected !== true ||
+    result.data.secrets?.previousConfigured !== true ||
+    Object.keys(result.data.secrets || {}).join(',') !== 'previousConfigured'
+  ) {
+    fail('relay should accept current and previous Mac secrets without exposing secret values', result);
+  }
+}
+
 async function verifyMacOfflineState() {
   const offlineMac = await connectMac({ relayUrl, secret, reachable: false });
   const result = await request('/api/projects', { headers: { authorization: 'Bearer valid-token' } });
@@ -684,6 +704,7 @@ async function main() {
   try {
     await waitForRelay(relay);
     await verifyRelayStartup();
+    await verifyRelaySecretRotationGraceWindow();
     await verifyMacOfflineState();
     const mac = await connectMac({ relayUrl, secret, reachable: true });
     await verifyIdleAndActiveHeartbeat(mac);

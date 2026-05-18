@@ -10,6 +10,7 @@ import {
 
 export function createRelayRuntime({
   relaySecret,
+  previousRelaySecret = '',
   requestTimeoutMs,
   heartbeatMs,
   idleHeartbeatMs = heartbeatMs,
@@ -69,6 +70,10 @@ export function createRelayRuntime({
     return 'ready';
   }
 
+  function isValidRelaySecret(value) {
+    return Boolean(value && (value === relaySecret || value === previousRelaySecret));
+  }
+
   function currentRelayStatus(authenticated = false) {
     cleanupTokenCache();
     return {
@@ -91,6 +96,9 @@ export function createRelayRuntime({
         requestBodyMaxBytes,
         heartbeatMs,
         idleHeartbeatMs
+      },
+      secrets: {
+        previousConfigured: Boolean(previousRelaySecret)
       },
       metrics: {
         ...metrics,
@@ -495,6 +503,7 @@ export function createRelayRuntime({
 
   return {
     relaySecret,
+    isValidRelaySecret,
     metrics,
     currentRelayStatus,
     requestMac,

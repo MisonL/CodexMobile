@@ -228,19 +228,20 @@ Mac 侧通过条件：
 
 ## 6. Secret Rotation
 
-Phase 1 单 secret 轮换：
+Relay secret grace-window 轮换：
 
-1. 停止 Mac connector。
-2. 在 Space Settings 中更新 `CODEXMOBILE_RELAY_SECRET`。
+1. 在 Space Settings 中设置 `CODEXMOBILE_RELAY_PREVIOUS_SECRET` 为当前旧 secret。
+2. 更新 `CODEXMOBILE_RELAY_SECRET` 为新 secret。
 3. Restart Space。
-4. 用新 secret 启动 Mac connector。
-5. 验证 `/api/status`、配对、`/api/projects`、`/api/chat/send` 和 `/ws`。
+4. 先用旧 secret 验证 connector 仍可连接，再用新 secret 启动 connector。
+5. 验证 `/api/status` 中 `secrets.previousConfigured=true`，但响应不包含 secret 值。
+6. 全部 connector 切到新 secret 后，清空 `CODEXMOBILE_RELAY_PREVIOUS_SECRET` 并 Restart Space。
+7. 验证 `/api/status`、配对、`/api/projects`、`/api/chat/send` 和 `/ws`。
 
 失败回退：
 
-- 如果新 secret 无法连接，恢复旧 Space secret。
+- 如果新 secret 无法连接，临时保留 `CODEXMOBILE_RELAY_PREVIOUS_SECRET` 并用旧 secret 恢复 connector。
 - Restart Space。
-- 用旧 secret 启动 connector。
 - 记录失败原因，不在日志或文档中写出 secret 值。
 
 ## 7. 常见故障

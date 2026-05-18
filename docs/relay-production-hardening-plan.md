@@ -89,9 +89,10 @@ Relay secret：
 
 密钥轮换：
 
-- Phase 1 使用单 active secret。
-- 轮换步骤是先停止 Mac connector，再更新 Space secret，再重启 Space，最后用新 secret 启动 connector。
-- Phase 2 可引入双 secret grace window，但必须显式配置 `current` 与 `previous`，并在状态中只暴露是否存在 previous，不暴露值。
+- Space 使用 `CODEXMOBILE_RELAY_SECRET` 作为 current secret。
+- 可选设置 `CODEXMOBILE_RELAY_PREVIOUS_SECRET` 作为 grace-window previous secret。
+- current 与 previous 必须显式配置且不同，状态只暴露 previous 是否存在，不暴露任何 secret 值。
+- 完成 Mac connector 迁移后必须清空 previous secret。
 
 ### 3.2 限流与防暴力
 

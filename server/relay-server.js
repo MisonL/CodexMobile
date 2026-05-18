@@ -22,6 +22,7 @@ const CLIENT_DIST = path.join(ROOT_DIR, 'client', 'dist');
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = parsePositiveInt(process.env.PORT, 7860);
 const RELAY_SECRET = String(process.env.CODEXMOBILE_RELAY_SECRET || '').trim();
+const RELAY_PREVIOUS_SECRET = String(process.env.CODEXMOBILE_RELAY_PREVIOUS_SECRET || '').trim();
 const REQUEST_TIMEOUT_MS = parsePositiveInt(
   process.env.CODEXMOBILE_RELAY_REQUEST_TIMEOUT_MS,
   DEFAULT_RELAY_REQUEST_TIMEOUT_MS
@@ -43,6 +44,12 @@ function assertRelayConfig() {
   }
   if (!isStrongRelaySecret(RELAY_SECRET)) {
     throw new Error('CODEXMOBILE_RELAY_SECRET must be at least 32 characters.');
+  }
+  if (RELAY_PREVIOUS_SECRET && !isStrongRelaySecret(RELAY_PREVIOUS_SECRET)) {
+    throw new Error('CODEXMOBILE_RELAY_PREVIOUS_SECRET must be at least 32 characters when set.');
+  }
+  if (RELAY_PREVIOUS_SECRET && RELAY_PREVIOUS_SECRET === RELAY_SECRET) {
+    throw new Error('CODEXMOBILE_RELAY_PREVIOUS_SECRET must differ from CODEXMOBILE_RELAY_SECRET.');
   }
 }
 
@@ -71,7 +78,7 @@ function createUpgradeHandler(runtime, macWss, browserWss, rateLimiter) {
 }
 
 function handleMacUpgrade(req, socket, head, macWss, runtime, rateLimiter) {
-  if (bearerSecretFromRequest(req) !== runtime.relaySecret) {
+  if (!runtime.isValidRelaySecret(bearerSecretFromRequest(req))) {
     const clientIp = clientIpFromRequest(req, TRUST_PROXY);
     const result = rateLimiter.consume(`mac-auth:${clientIp}`, {
       limit: 5,
@@ -109,6 +116,7 @@ function main() {
   const rateLimiter = createMemoryRateLimiter();
   const runtime = createRelayRuntime({
     relaySecret: RELAY_SECRET,
+    previousRelaySecret: RELAY_PREVIOUS_SECRET,
     requestTimeoutMs: REQUEST_TIMEOUT_MS,
     heartbeatMs: HEARTBEAT_MS,
     idleHeartbeatMs: IDLE_HEARTBEAT_MS,
