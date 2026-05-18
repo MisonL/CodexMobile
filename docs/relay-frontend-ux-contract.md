@@ -49,11 +49,14 @@ Relay request streaming 已允许：
 - `/api/uploads` 上传文件。
 - `/api/voice/transcribe` 语音转写上传。
 
+Relay response streaming 已允许：
+
+- `/generated/*` 生成图片二进制读取。
+
 Relay Phase 1 禁用或提示不支持：
 
 - `/ws/realtime` 实时语音。
 - 语音朗读音频流。
-- 生成图片二进制读取。
 - 大响应下载。
 
 禁用规则：

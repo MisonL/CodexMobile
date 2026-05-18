@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { once } from 'node:events';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import {
@@ -205,6 +206,13 @@ function writeForwardedResponse(res, result) {
   res.end(body);
 }
 
+async function writeResponseChunk(res, chunk) {
+  if (res.write(chunk)) {
+    return;
+  }
+  await once(res, 'drain');
+}
+
 export function createRelayHttpHandler({ clientDist, maxBodyBytes, requestTimeoutMs, runtime, rateLimiter, trustProxy }) {
   function sendRateLimited(res, result) {
     runtime.metrics.rateLimitedTotal += 1;
@@ -279,13 +287,7 @@ export function createRelayHttpHandler({ clientDist, maxBodyBytes, requestTimeou
       if (isRelayStreamingRequest(req.method, url.pathname, contentType)) {
         const result = await streamRequestToMac(req, url, requestId, browserToken);
         writeForwardedResponse(res, result);
-        logRelayEvent('relay.stream_request.completed', {
-          requestId,
-          method: req.method || 'GET',
-          path: url.pathname,
-          status: result.status || 502,
-          durationMs: Date.now() - startedAt
-        });
+        logForwardSuccess('relay.stream_request.completed', req, url, requestId, result, startedAt);
         return;
       }
       const buffer = await readRequestBody(req, maxBodyBytes);
@@ -301,27 +303,35 @@ export function createRelayHttpHandler({ clientDist, maxBodyBytes, requestTimeou
         clientKey: browserToken ? `browser:${tokenRateLimitKey(browserToken)}` : ''
       });
       writeForwardedResponse(res, result);
-      logRelayEvent('relay.request.completed', {
-        requestId,
-        method: req.method || 'GET',
-        path: url.pathname,
-        status: result.status || 502,
-        durationMs: Date.now() - startedAt
-      });
+      logForwardSuccess('relay.request.completed', req, url, requestId, result, startedAt);
     } catch (error) {
       runtime.metrics.relayRequestsFailed += 1;
       const status = error.status || 502;
       const message = error.message || 'relay_request_failed';
       sendRelayError(res, status, message);
-      logRelayEvent('relay.request.failed', {
-        requestId,
-        method: req.method || 'GET',
-        path: url.pathname,
-        status,
-        durationMs: Date.now() - startedAt,
-        error: message
-      }, 'warn');
+      logForwardFailure(req, url, requestId, status, message, startedAt);
     }
+  }
+
+  function logForwardSuccess(event, req, url, requestId, result, startedAt) {
+    logRelayEvent(event, {
+      requestId,
+      method: req.method || 'GET',
+      path: url.pathname,
+      status: result.status || 502,
+      durationMs: Date.now() - startedAt
+    });
+  }
+
+  function logForwardFailure(req, url, requestId, status, message, startedAt) {
+    logRelayEvent('relay.request.failed', {
+      requestId,
+      method: req.method || 'GET',
+      path: url.pathname,
+      status,
+      durationMs: Date.now() - startedAt,
+      error: message
+    }, 'warn');
   }
 
   async function streamRequestToMac(req, url, requestId, browserToken) {
@@ -350,6 +360,78 @@ export function createRelayHttpHandler({ clientDist, maxBodyBytes, requestTimeou
       notifyMacRequestStreamError(start.requestId, error);
       throw error;
     }
+  }
+
+  async function streamResponseFromMac(req, res, url, browserToken) {
+    const startedAt = Date.now();
+    const requestId = createRequestId();
+    let streamErrorHandled = false;
+    try {
+      runtime.metrics.relayRequestsTotal += 1;
+      await runtime.requestMacStream({
+        type: 'http.stream.request',
+        requestId,
+        method: req.method || 'GET',
+        path: safePathWithQuery(url.pathname, url.search),
+        headers: filterRequestHeaders(req.headers),
+        timeoutMs: requestTimeoutMs
+      }, {
+        onStart: (payload) => writeStreamResponseStart(res, payload),
+        onChunk: (chunk) => writeResponseChunk(res, chunk),
+        onEnd: () => endStreamResponse(res),
+        onError: (payload) => {
+          streamErrorHandled = true;
+          writeStreamResponseError(res, payload);
+        }
+      }, requestTimeoutMs, {
+        clientKey: browserToken ? `browser:${tokenRateLimitKey(browserToken)}` : ''
+      });
+      logRelayEvent('relay.stream_response.completed', {
+        requestId,
+        method: req.method || 'GET',
+        path: url.pathname,
+        durationMs: Date.now() - startedAt
+      });
+    } catch (error) {
+      runtime.metrics.relayRequestsFailed += 1;
+      if (!streamErrorHandled) {
+        writeStreamResponseError(res, {
+          status: error.status || 502,
+          error: error.message || 'relay_stream_failed'
+        });
+      }
+      logRelayEvent('relay.stream_response.failed', {
+        requestId,
+        method: req.method || 'GET',
+        path: url.pathname,
+        status: error.status || 502,
+        durationMs: Date.now() - startedAt,
+        error: error.message || 'relay_stream_failed'
+      }, 'warn');
+    }
+  }
+
+  function writeStreamResponseStart(res, payload) {
+    if (res.headersSent) {
+      return;
+    }
+    res.writeHead(payload.status || 200, filterResponseHeaders(payload.headers || {}));
+  }
+
+  function endStreamResponse(res) {
+    if (!res.headersSent) {
+      res.writeHead(204, { 'cache-control': 'no-store' });
+    }
+    res.end();
+  }
+
+  function writeStreamResponseError(res, payload) {
+    const error = payload.error || 'relay_stream_failed';
+    if (!res.headersSent) {
+      sendRelayError(res, payload.status || 502, error);
+      return;
+    }
+    res.destroy(Object.assign(new Error(error), { status: payload.status || 502 }));
   }
 
   async function sendRequestChunksToMac(req, requestId, totalLimit) {
@@ -438,8 +520,9 @@ export function createRelayHttpHandler({ clientDist, maxBodyBytes, requestTimeou
         return;
       }
       if (url.pathname.startsWith('/generated/')) {
-        if (await requireBrowserAuth(req, res)) {
-          sendJson(res, 501, { error: 'relay_streaming_required' });
+        const browserToken = await requireBrowserAuth(req, res);
+        if (browserToken) {
+          await streamResponseFromMac(req, res, url, browserToken);
         }
         return;
       }

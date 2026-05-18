@@ -248,7 +248,7 @@ export function createRelayRuntime({
     });
   }
 
-  function createPendingMacRequest(envelope, timeoutMs = requestTimeoutMs, { clientKey = '' } = {}) {
+  function createPendingMacRequest(envelope, timeoutMs = requestTimeoutMs, { clientKey = '', streamHandlers = null } = {}) {
     assertMacAvailable(envelope, clientKey);
     const requestId = envelope.requestId || createRequestId();
     const epoch = macConnectionEpoch;
@@ -257,7 +257,10 @@ export function createRelayRuntime({
       reject: () => {},
       timer: null,
       epoch,
-      clientKey
+      clientKey,
+      streamHandlers,
+      streamSequence: 0,
+      streamStarted: false
     };
     const response = new Promise((resolve, reject) => {
       pending.resolve = resolve;
@@ -276,6 +279,14 @@ export function createRelayRuntime({
 
   function requestMac(envelope, timeoutMs = requestTimeoutMs, { clientKey = '' } = {}) {
     const started = createPendingMacRequest(envelope, timeoutMs, { clientKey });
+    if (!sendWsJson(macSocket, { ...envelope, requestId: started.requestId, macConnectionEpoch: started.epoch })) {
+      failMacRequest(started.requestId, 503, 'mac_offline');
+    }
+    return started.response;
+  }
+
+  function requestMacStream(envelope, handlers, timeoutMs = requestTimeoutMs, { clientKey = '' } = {}) {
+    const started = createPendingMacRequest(envelope, timeoutMs, { clientKey, streamHandlers: handlers });
     if (!sendWsJson(macSocket, { ...envelope, requestId: started.requestId, macConnectionEpoch: started.epoch })) {
       failMacRequest(started.requestId, 503, 'mac_offline');
     }
@@ -367,7 +378,45 @@ export function createRelayRuntime({
     pending.resolve(payload);
   }
 
-  function handleMacMessage(ws, message) {
+  async function handleStreamResponsePayload(payload) {
+    const pending = pendingRequests.get(payload.requestId);
+    if (!pending || !pending.streamHandlers || (payload.macConnectionEpoch && payload.macConnectionEpoch !== pending.epoch)) {
+      return;
+    }
+    if (payload.type === 'http.response.start') {
+      pending.streamStarted = true;
+      await pending.streamHandlers.onStart?.(payload);
+      return;
+    }
+    if (payload.type === 'http.response.chunk') {
+      await handleStreamResponseChunk(pending, payload);
+      return;
+    }
+    clearTimeout(pending.timer);
+    deletePendingRequest(payload.requestId);
+    if (payload.type === 'http.stream.error') {
+      await pending.streamHandlers.onError?.(payload);
+      pending.reject(Object.assign(new Error(payload.error || 'relay_stream_error'), { status: payload.status || 502 }));
+      return;
+    }
+    await pending.streamHandlers.onEnd?.(payload);
+    pending.resolve(payload);
+  }
+
+  async function handleStreamResponseChunk(pending, payload) {
+    if (!pending.streamStarted) {
+      throw Object.assign(new Error('relay_stream_start_missing'), { status: 502 });
+    }
+    const expectedSequence = pending.streamSequence + 1;
+    const bytes = Buffer.from(payload.data || '', payload.encoding === 'base64' ? 'base64' : 'utf8');
+    if (Number(payload.sequence) !== expectedSequence || Number(payload.bytes) !== bytes.length) {
+      throw Object.assign(new Error('relay_stream_chunk_invalid'), { status: 502 });
+    }
+    pending.streamSequence = expectedSequence;
+    await pending.streamHandlers.onChunk?.(bytes, payload);
+  }
+
+  async function handleMacMessage(ws, message) {
     const payload = safeJsonParse(message.toString());
     if (!payload?.type) {
       ws.close(4002, 'invalid_message');
@@ -403,6 +452,14 @@ export function createRelayRuntime({
       broadcast(payload.payload);
       return;
     }
+    if (['http.response.start', 'http.response.chunk', 'http.response.end', 'http.stream.error'].includes(payload.type)) {
+      try {
+        await handleStreamResponsePayload(payload);
+      } catch (error) {
+        failMacRequest(payload.requestId, error.status || 502, error.message || 'relay_stream_error');
+      }
+      return;
+    }
     if (['http.response', 'http.error', 'auth.validate.result'].includes(payload.type)) {
       handleResponsePayload(payload);
     }
@@ -410,7 +467,11 @@ export function createRelayRuntime({
 
   function acceptMacSocket(ws) {
     ws.lastPongAt = Date.now();
-    ws.on('message', (message) => handleMacMessage(ws, message));
+    ws.on('message', (message) => {
+      handleMacMessage(ws, message).catch((error) => {
+        ws.close(4002, error.message || 'invalid_message');
+      });
+    });
     ws.on('close', () => detachMacSocket(ws));
     ws.on('error', () => detachMacSocket(ws));
   }
@@ -437,6 +498,7 @@ export function createRelayRuntime({
     metrics,
     currentRelayStatus,
     requestMac,
+    requestMacStream,
     beginMacRequest,
     sendMacRequestFrame,
     failMacRequest,

@@ -123,7 +123,7 @@ relay 拓扑是新增路径，不是替代路径。
 | `GET` | `/api/status` | 返回 relay 和 Mac 连接状态。 |
 | `POST` | `/api/pair` | 转发到 Mac，让 Mac 继续作为浏览器 token 权威来源。 |
 | Any | `/api/*` | 要求浏览器 token，然后在 Mac 连接后转发到 Mac。 |
-| `GET` | `/generated/*` | 要求浏览器 token。Phase 1 返回 `501 relay_streaming_required`，Phase 2 使用流式转发到 Mac，不缓存。 |
+| `GET` | `/generated/*` | 要求浏览器 token。使用 response streaming 转发到 Mac，不缓存。 |
 
 这些行为只适用于 Space 中转服务。直接发往 Mac 的请求继续使用现有本地服务行为。`/api/*` 规则是 default-forward：新增本地 API route 默认转发，除非明确标记为 Space-owned 或 relay-unsupported。
 
@@ -391,7 +391,7 @@ Body limits：
   - Upload：50 MB。
   - Voice：10 MB。
 - relay 请求超限返回 `413`。
-- Phase 1 中，大型二进制 route 返回 `413 relay_body_too_large` 或 `501 relay_streaming_required`，不得缓冲为单个 base64 JSON payload。
+- 未实现 streaming 的大型二进制 route 返回 `413 relay_body_too_large` 或 `501 relay_streaming_required`，不得缓冲为单个 base64 JSON payload。
 
 ## 13. 可观测性
 

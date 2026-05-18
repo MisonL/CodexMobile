@@ -25,6 +25,7 @@ const baseUrl = `http://127.0.0.1:${port}`;
 const relayUrl = `ws://127.0.0.1:${port}/relay/mac`;
 const localFixturePort = Number(process.env.CODEXMOBILE_RELAY_LOCAL_FIXTURE_PORT || 9788);
 const rootDir = fileURLToPath(new URL('..', import.meta.url));
+const generatedFixtureBytes = Buffer.alloc(2 * 1024 * 1024 + 17, 7);
 
 function fail(message, detail) {
   console.error(`Relay smoke failed: ${message}`);
@@ -179,6 +180,23 @@ async function request(path, options = {}) {
   return { response, data };
 }
 
+async function requestBuffer(path, options = {}) {
+  let response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      ...options,
+      signal: options.signal || AbortSignal.timeout(5000),
+      headers: options.headers || {}
+    });
+  } catch (error) {
+    throw new Error(`request ${path} failed: ${error.message}`);
+  }
+  return {
+    response,
+    body: Buffer.from(await response.arrayBuffer())
+  };
+}
+
 function multipartBody(boundary, fieldName, filename, contentType, content) {
   return Buffer.from([
     `--${boundary}\r\n`,
@@ -193,58 +211,7 @@ function startLocalCodexFixture() {
   const browserSockets = new Set();
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || '/', `http://${req.headers.host || `127.0.0.1:${localFixturePort}`}`);
-    const token = String(req.headers.authorization || '').replace(/^bearer\s+/i, '');
-    if (url.pathname === '/api/status') {
-      sendFixtureJson(res, 200, {
-        connected: true,
-        hostName: 'fixture-mac',
-        provider: 'codex',
-        model: 'fixture-model',
-        syncedAt: null,
-        auth: { authenticated: token === 'valid-token' }
-      });
-      return;
-    }
-    if (url.pathname === '/api/chat/send') {
-      sendFixtureJson(res, 202, { accepted: true, turnId: 'fixture-turn' });
-      setTimeout(() => {
-        broadcastFixtureEvent(browserSockets, {
-          type: 'status-update',
-          status: 'running',
-          label: 'Fixture running',
-          turnId: 'fixture-turn'
-        });
-      }, 50);
-      return;
-    }
-    if (url.pathname === '/api/uploads') {
-      const body = await readFixtureBody(req);
-      if (!body.includes('hello-upload')) {
-        sendFixtureJson(res, 400, { error: 'missing_upload_body' });
-        return;
-      }
-      sendFixtureJson(res, 201, {
-        ok: true,
-        kind: 'upload',
-        bytes: body.length,
-        contentType: req.headers['content-type'] || ''
-      });
-      return;
-    }
-    if (url.pathname === '/api/voice/transcribe') {
-      const body = await readFixtureBody(req);
-      if (!body.includes('voice-bytes')) {
-        sendFixtureJson(res, 400, { error: 'missing_voice_body' });
-        return;
-      }
-      sendFixtureJson(res, 200, {
-        text: 'fixture transcript',
-        bytes: body.length,
-        contentType: req.headers['content-type'] || ''
-      });
-      return;
-    }
-    sendFixtureJson(res, 404, { error: 'not_found' });
+    await handleFixtureHttp(req, res, url, browserSockets);
   });
   const wss = new WebSocketServer({ noServer: true });
   server.on('upgrade', (req, socket, head) => {
@@ -275,6 +242,90 @@ function startLocalCodexFixture() {
       });
     });
   });
+}
+
+async function handleFixtureHttp(req, res, url, browserSockets) {
+  if (url.pathname === '/api/status') {
+    sendFixtureStatus(req, res);
+    return;
+  }
+  if (url.pathname === '/api/chat/send') {
+    sendFixtureChat(res, browserSockets);
+    return;
+  }
+  if (url.pathname === '/api/uploads') {
+    await sendFixtureUpload(req, res);
+    return;
+  }
+  if (url.pathname === '/api/voice/transcribe') {
+    await sendFixtureVoice(req, res);
+    return;
+  }
+  if (url.pathname === '/generated/test.png') {
+    sendFixtureGenerated(res);
+    return;
+  }
+  sendFixtureJson(res, 404, { error: 'not_found' });
+}
+
+function sendFixtureStatus(req, res) {
+  const token = String(req.headers.authorization || '').replace(/^bearer\s+/i, '');
+  sendFixtureJson(res, 200, {
+    connected: true,
+    hostName: 'fixture-mac',
+    provider: 'codex',
+    model: 'fixture-model',
+    syncedAt: null,
+    auth: { authenticated: token === 'valid-token' }
+  });
+}
+
+function sendFixtureChat(res, browserSockets) {
+  sendFixtureJson(res, 202, { accepted: true, turnId: 'fixture-turn' });
+  setTimeout(() => {
+    broadcastFixtureEvent(browserSockets, {
+      type: 'status-update',
+      status: 'running',
+      label: 'Fixture running',
+      turnId: 'fixture-turn'
+    });
+  }, 50);
+}
+
+async function sendFixtureUpload(req, res) {
+  const body = await readFixtureBody(req);
+  if (!body.includes('hello-upload')) {
+    sendFixtureJson(res, 400, { error: 'missing_upload_body' });
+    return;
+  }
+  sendFixtureJson(res, 201, {
+    ok: true,
+    kind: 'upload',
+    bytes: body.length,
+    contentType: req.headers['content-type'] || ''
+  });
+}
+
+async function sendFixtureVoice(req, res) {
+  const body = await readFixtureBody(req);
+  if (!body.includes('voice-bytes')) {
+    sendFixtureJson(res, 400, { error: 'missing_voice_body' });
+    return;
+  }
+  sendFixtureJson(res, 200, {
+    text: 'fixture transcript',
+    bytes: body.length,
+    contentType: req.headers['content-type'] || ''
+  });
+}
+
+function sendFixtureGenerated(res) {
+  res.writeHead(200, {
+    'content-type': 'image/png',
+    'content-length': generatedFixtureBytes.length,
+    'cache-control': 'no-store'
+  });
+  res.end(generatedFixtureBytes);
 }
 
 async function readFixtureBody(req) {
@@ -551,6 +602,31 @@ async function verifyRealConnectorStreamsMultipartRequests() {
   }
 }
 
+async function verifyRealConnectorStreamsGeneratedAssets() {
+  const local = await startLocalCodexFixture();
+  const connector = spawnConnector(local.url);
+  try {
+    await waitForMacConnected();
+    const result = await requestBuffer('/generated/test.png', {
+      headers: { authorization: 'Bearer valid-token' }
+    });
+    if (
+      result.response.status !== 200 ||
+      result.response.headers.get('content-type') !== 'image/png' ||
+      !result.body.equals(generatedFixtureBytes)
+    ) {
+      fail('real connector should stream generated asset bytes to browser', {
+        status: result.response.status,
+        contentType: result.response.headers.get('content-type'),
+        bytes: result.body.length
+      });
+    }
+  } finally {
+    connector.kill('SIGTERM');
+    await local.close();
+  }
+}
+
 async function main() {
   expectInvalidForwardPathRejected();
   verifyRateLimitRetryAfterHelpers();
@@ -573,6 +649,7 @@ async function main() {
     await verifyReconnectAndUnsupportedRoutes();
     await verifyRealConnectorForwardsLocalWsEvents();
     await verifyRealConnectorStreamsMultipartRequests();
+    await verifyRealConnectorStreamsGeneratedAssets();
     console.log('Relay smoke ok');
   } finally {
     relay.kill('SIGTERM');

@@ -126,7 +126,7 @@ Space 中转服务对已认证 API 请求使用 default-forward 策略。
 
 - `/api/feishu/auth/callback` 发布前必须明确归类。第一版中转服务要么在文档化 public URL 配置后转发到 Mac，要么返回 `501 relay_unsupported` 并给出清晰 UI 提示。
 - `/ws/realtime` 不属于 Phase 1，除非实现带 backpressure 的全双工流。未实现时，Space 返回 `501 relay_realtime_unsupported`。
-- relay 模式下 `/generated/*` 必须要求浏览器鉴权。Phase 1 在流式响应支持前返回 `501 relay_streaming_required`，Space 不落盘、不缓存；Phase 2 才允许带 backpressure 地转发到 Mac。
+- relay 模式下 `/generated/*` 必须要求浏览器鉴权，并通过 response streaming 带 backpressure 地转发到 Mac。Space 不落盘、不缓存。
 
 ## 6. 二进制与流式传输契约
 
@@ -134,7 +134,7 @@ Space 中转服务对已认证 API 请求使用 default-forward 策略。
 
 ### 6.1 二进制策略
 
-Relay 对小体积 JSON/text 请求继续使用 buffered 转发。`/api/uploads` 和 `/api/voice/transcribe` 使用 chunked request streaming 转发到 Mac connector，避免 Space 缓冲完整 multipart body。
+Relay 对小体积 JSON/text 请求继续使用 buffered 转发。`/api/uploads` 和 `/api/voice/transcribe` 使用 chunked request streaming 转发到 Mac connector，`/generated/*` 使用 chunked response streaming 返回浏览器，避免 Space 缓冲完整 multipart body 或大型二进制响应。
 
 限制：
 
@@ -142,7 +142,7 @@ Relay 对小体积 JSON/text 请求继续使用 buffered 转发。`/api/uploads`
 - 小型二进制 base64 body：解码后 2 MB。
 - `/api/uploads` request stream：50 MB。
 - `/api/voice/transcribe` request stream：10 MB。
-- generated-image、speech-audio 和大型响应路径在 response streaming 实现前必须明确返回 `413 relay_body_too_large` 或 `501 relay_streaming_required`。
+- speech-audio 和其他大型响应路径在 response streaming 实现前必须明确返回 `413 relay_body_too_large` 或 `501 relay_streaming_required`。
 
 这可以在验证基础中转链路时避免内存和事件循环风险。
 

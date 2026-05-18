@@ -2,6 +2,8 @@ import {
   DEFAULT_RELAY_HEARTBEAT_MS,
   DEFAULT_RELAY_IDLE_HEARTBEAT_MS,
   DEFAULT_RELAY_REQUEST_TIMEOUT_MS,
+  DEFAULT_RELAY_STREAM_CHUNK_BYTES,
+  DEFAULT_RELAY_WS_BUFFERED_BYTES,
   RELAY_PROTOCOL_VERSION,
   browserTokenFromHeaders,
   buildLocalTargetUrl,
@@ -21,6 +23,8 @@ import { pathToFileURL } from 'node:url';
 const INITIAL_RECONNECT_DELAY_MS = 1000;
 const ACTIVE_RECONNECT_CAP_MS = 30000;
 const STABLE_RECONNECT_RESET_MS = 60000;
+const WS_BUFFER_CHECK_INTERVAL_MS = 10;
+const WS_BUFFER_WAIT_TIMEOUT_MS = 30000;
 
 const RELAY_URL = String(process.env.CODEXMOBILE_RELAY_URL || '').trim();
 const RELAY_SECRET = String(process.env.CODEXMOBILE_RELAY_SECRET || '').trim();
@@ -232,6 +236,16 @@ async function encodeResponseBody(response) {
   };
 }
 
+async function waitForConnectorBackpressure(maxBufferedBytes = DEFAULT_RELAY_WS_BUFFERED_BYTES) {
+  const startedAt = Date.now();
+  while ((ws?.bufferedAmount || 0) > maxBufferedBytes) {
+    if (Date.now() - startedAt > WS_BUFFER_WAIT_TIMEOUT_MS) {
+      throw Object.assign(new Error('relay_stream_backpressure_timeout'), { status: 502 });
+    }
+    await new Promise((resolve) => setTimeout(resolve, WS_BUFFER_CHECK_INTERVAL_MS));
+  }
+}
+
 async function handleAuthValidate(message) {
   const requestId = message.requestId;
   try {
@@ -280,13 +294,64 @@ async function handleHttpRequest(message) {
     await checkLocalStatus();
   }
   if (!localStatus.reachable) {
-    sendWsJson(ws, {
-      type: 'http.error',
-      requestId,
-      macConnectionEpoch: relayEpoch,
-      status: 503,
-      error: 'mac_local_offline'
-    });
+    sendHttpError(requestId, Object.assign(new Error('mac_local_offline'), { status: 503 }));
+    return;
+  }
+  try {
+    const response = await fetchLocalHttp(message);
+    await sendBufferedHttpResponse(requestId, response);
+  } catch (error) {
+    sendHttpError(requestId, error);
+  }
+}
+
+async function fetchLocalHttp(message) {
+  const browserToken = browserTokenFromHeaders(message.headers || {});
+  if (browserToken) {
+    await ensureLocalEventSocket(browserToken);
+  }
+  const method = String(message.method || 'GET').toUpperCase();
+  return fetch(buildLocalUrl(message.path), {
+    method,
+    headers: filterRequestHeaders(message.headers || {}),
+    body: ['GET', 'HEAD'].includes(method) ? undefined : decodeBody(message.bodyEncoding, message.body),
+    signal: AbortSignal.timeout(message.timeoutMs || REQUEST_TIMEOUT_MS)
+  });
+}
+
+async function sendBufferedHttpResponse(requestId, response) {
+  const encoded = await encodeResponseBody(response);
+  if (encoded.type === 'http.error') {
+    sendWsJson(ws, { ...encoded, requestId, macConnectionEpoch: relayEpoch });
+    return;
+  }
+  sendWsJson(ws, {
+    type: 'http.response',
+    requestId,
+    macConnectionEpoch: relayEpoch,
+    status: response.status,
+    headers: filterResponseHeaders(response.headers),
+    ...encoded
+  });
+}
+
+function sendHttpError(requestId, error) {
+  sendWsJson(ws, {
+    type: 'http.error',
+    requestId,
+    macConnectionEpoch: relayEpoch,
+    status: error?.status || 502,
+    error: error?.name === 'TimeoutError' ? 'relay_request_timeout' : error?.message || 'local_request_failed'
+  });
+}
+
+async function handleHttpStreamRequest(message) {
+  const requestId = message.requestId;
+  if (!localStatus.reachable) {
+    await checkLocalStatus();
+  }
+  if (!localStatus.reachable) {
+    sendStreamError(requestId, Object.assign(new Error('mac_local_offline'), { status: 503 }));
     return;
   }
   try {
@@ -294,39 +359,54 @@ async function handleHttpRequest(message) {
     if (browserToken) {
       await ensureLocalEventSocket(browserToken);
     }
-    const body = decodeBody(message.bodyEncoding, message.body);
     const response = await fetch(buildLocalUrl(message.path), {
       method: message.method || 'GET',
       headers: filterRequestHeaders(message.headers || {}),
-      body: ['GET', 'HEAD'].includes(String(message.method || 'GET').toUpperCase()) ? undefined : body,
       signal: AbortSignal.timeout(message.timeoutMs || REQUEST_TIMEOUT_MS)
     });
-    const encoded = await encodeResponseBody(response);
-    if (encoded.type === 'http.error') {
-      sendWsJson(ws, {
-        ...encoded,
-        requestId,
-        macConnectionEpoch: relayEpoch
-      });
-      return;
-    }
-    sendWsJson(ws, {
-      type: 'http.response',
-      requestId,
-      macConnectionEpoch: relayEpoch,
-      status: response.status,
-      headers: filterResponseHeaders(response.headers),
-      ...encoded
-    });
+    await sendStreamingHttpResponse(requestId, response);
   } catch (error) {
-    sendWsJson(ws, {
-      type: 'http.error',
-      requestId,
-      macConnectionEpoch: relayEpoch,
-      status: error?.status || 502,
-      error: error?.name === 'TimeoutError' ? 'relay_request_timeout' : error?.message || 'local_request_failed'
-    });
+    sendStreamError(requestId, error);
   }
+}
+
+async function sendStreamingHttpResponse(requestId, response) {
+  sendWsJson(ws, {
+    type: 'http.response.start',
+    requestId,
+    macConnectionEpoch: relayEpoch,
+    status: response.status,
+    headers: filterResponseHeaders(response.headers)
+  });
+  let sequence = 0;
+  let totalBytes = 0;
+  if (response.body) {
+    for await (const chunk of response.body) {
+      const buffer = Buffer.from(chunk);
+      for (let offset = 0; offset < buffer.length; offset += DEFAULT_RELAY_STREAM_CHUNK_BYTES) {
+        const slice = buffer.subarray(offset, offset + DEFAULT_RELAY_STREAM_CHUNK_BYTES);
+        sequence += 1;
+        totalBytes += slice.length;
+        sendWsJson(ws, {
+          type: 'http.response.chunk',
+          requestId,
+          macConnectionEpoch: relayEpoch,
+          sequence,
+          encoding: 'base64',
+          data: slice.toString('base64'),
+          bytes: slice.length
+        });
+        await waitForConnectorBackpressure();
+      }
+    }
+  }
+  sendWsJson(ws, {
+    type: 'http.response.end',
+    requestId,
+    macConnectionEpoch: relayEpoch,
+    chunks: sequence,
+    totalBytes
+  });
 }
 
 function createStreamController() {
@@ -470,24 +550,36 @@ function handleMessage(raw) {
     return;
   }
   if (message.type === 'relay.hello') {
-    relayEpoch = Number(message.macConnectionEpoch || 0);
-    relayConnectionId = message.connectionId || '';
-    onlineSinceMs = Date.now();
-    scheduleReconnectDelayReset(ws);
-    logState('online', `epoch=${relayEpoch}`);
-    sendMacStatus();
+    handleRelayHello(message);
     return;
   }
   if (message.macConnectionEpoch && message.macConnectionEpoch !== relayEpoch) {
     return;
   }
   if (message.type === 'ping') {
-    if (message.active) {
-      noteRelayActive();
-    }
-    sendWsJson(ws, { type: 'pong', sentAt: message.sentAt || Date.now() });
+    handleRelayPing(message);
     return;
   }
+  dispatchRelayMessage(message);
+}
+
+function handleRelayHello(message) {
+  relayEpoch = Number(message.macConnectionEpoch || 0);
+  relayConnectionId = message.connectionId || '';
+  onlineSinceMs = Date.now();
+  scheduleReconnectDelayReset(ws);
+  logState('online', `epoch=${relayEpoch}`);
+  sendMacStatus();
+}
+
+function handleRelayPing(message) {
+  if (message.active) {
+    noteRelayActive();
+  }
+  sendWsJson(ws, { type: 'pong', sentAt: message.sentAt || Date.now() });
+}
+
+function dispatchRelayMessage(message) {
   if (message.type === 'auth.validate') {
     noteRelayActive();
     handleAuthValidate(message);
@@ -496,6 +588,11 @@ function handleMessage(raw) {
   if (message.type === 'http.request') {
     noteRelayActive();
     handleHttpRequest(message);
+    return;
+  }
+  if (message.type === 'http.stream.request') {
+    noteRelayActive();
+    handleHttpStreamRequest(message);
     return;
   }
   if (message.type === 'http.request.start') {

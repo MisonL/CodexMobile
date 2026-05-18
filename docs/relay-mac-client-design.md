@@ -311,7 +311,7 @@ relay 模式对浏览器 API 调用使用 default-forward。Space-owned exceptio
 | `POST /api/chat/abort` | 转发到 Mac connector。 |
 | `POST /api/uploads` | 仅在 streaming 支持或显式 small-body gate 后转发到 Mac connector。 |
 | `POST /api/voice/*` | 仅在 streaming 支持或显式 small-body gate 后转发到 Mac connector。 |
-| `GET /generated/*` | 要求浏览器鉴权。Phase 1 返回 `501 relay_streaming_required`；Phase 2 流式转发到 Mac，Space 不持久化、不缓存。 |
+| `GET /generated/*` | 要求浏览器鉴权。使用 response streaming 转发到 Mac，Space 不持久化、不缓存。 |
 | `GET /api/quotas/codex` | 转发到 Mac connector。 |
 | `GET/POST /api/feishu/*` | 转发到 Mac connector，除非 callback 路由被明确标记为 unsupported。 |
 | `PATCH/DELETE /api/projects/:id/sessions/:sessionId` | 转发到 Mac connector。 |
@@ -466,7 +466,7 @@ connector 不应试图用持续人工流量阻止 HuggingFace 免费层休眠。
    - relay 离线路由返回 `503`。
    - relay online 后 `/api/projects` 到达 Mac。
    - 浏览器 WebSocket 收到 Mac 转发的 `status-update` event。
-   - `/generated/*` 未鉴权返回 `401`，已鉴权后在 Phase 1 返回 `501 relay_streaming_required`。
+   - `/generated/*` 未鉴权返回 `401`，已鉴权后通过 response streaming 返回 Mac 本地生成文件。
    - 现有本地直连 `/api/projects`、`/api/chat/send`、`/ws`、upload、voice、image 和 Lark route 行为保持不变。
 
 ## 13.1 回归边界
