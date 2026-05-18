@@ -4,137 +4,171 @@
 
 - Date: 2026-05-18
 - Branch: `main`
-- Local commits:
-  - `4dbf061 feat: add relay transport and connector`
-  - `09166ea docs: document relay phase one rollout`
-  - `6ab8450 fix: broadcast initial sync after startup`
-  - `d596285 docs: record relay space deployment blocker`
-  - `36b7198 chore: add HuggingFace Space prepare script`
-  - `9f0235c test: add relay browser fixture coverage`
-  - `72cfe04 chore: add HuggingFace Space deploy helper`
 - Pull request: `https://github.com/RNG2018-mlxg/CodexMobile/pull/4`
-- Space URL: not available
+- Space repo: `misonL/codexmobile-relay`
+- Space URL: `https://misonl-codexmobile-relay.hf.space`
+- Space SDK: Docker
+- Space visibility: public
+- Deployed Space commit: `15ffca389731c50eb305d95fe6b7c2167cad1838`
 - Mac local URL: `http://127.0.0.1:3321`
-- Secret rotation: no
+- Relay secret: configured in HuggingFace Space Secrets; value not recorded
 
 ## 预检
 
-- `npm run smoke:relay`: passed
-- `npm run build`: passed
-- `CODEXMOBILE_URL=http://127.0.0.1:3321/api/status npm run smoke`: passed
-- `git diff --check`: passed
-- Real browser local relay check: passed
-  - Fixture URL: `http://127.0.0.1:9792`
-  - Ready state rendered `已连接`, project list, and the composer.
-  - `mac_offline` rendered `Mac 未连接` and disabled composer actions while preserving the draft.
-  - `429 relay_rate_limited` disabled only the send action and rendered `请求过快，请 18 秒后再试`.
-  - Screenshot captured at `.codexmobile/relay-browser-offline.png`.
-  - Rechecked in Chrome DevTools on 2026-05-18: `valid-token` loaded the ready state, and `SIGUSR2` disconnect switched the page to `Mac 未连接` with send, upload and voice actions disabled.
+| Check | Result |
+| --- | --- |
+| `npm run build` | Passed |
+| `npm run smoke:relay` | Passed |
+| `npm run test:space-verify` | Passed |
+| `npm run space:prepare` | Passed; generated 47 files |
+| `npm audit --audit-level=high` | Passed; `found 0 vulnerabilities` |
+| `git diff --check` | Passed |
+| Chrome local relay fixture | Passed; ready, `mac_offline`, and rate-limit states verified |
 
-## HuggingFace Space 部署包
+## HuggingFace Space 部署
 
-本地已补齐无密钥 Space 工作目录生成脚本，便于拿到 HuggingFace 凭据后直接推送到目标 Docker Space 仓库。
+- Created Space `misonL/codexmobile-relay` with `space_sdk=docker`.
+- Configured Space variables:
+  - `CODEXMOBILE_MODE=relay`
+  - `HOST=0.0.0.0`
+  - `PORT=7860`
+  - `CODEXMOBILE_RELAY_REQUEST_TIMEOUT_MS=120000`
+  - `CODEXMOBILE_RELAY_HEARTBEAT_MS=15000`
+  - `CODEXMOBILE_RELAY_IDLE_HEARTBEAT_MS=300000`
+  - `CODEXMOBILE_RELAY_PENDING_REQUESTS_MAX=64`
+  - `CODEXMOBILE_RELAY_BROWSER_PENDING_REQUESTS_MAX=6`
+- Configured Space secret `CODEXMOBILE_RELAY_SECRET`.
+- `npm run space:deploy -- --remote https://huggingface.co/spaces/misonL/codexmobile-relay` was rejected by HuggingFace git pre-receive because PNG icons require Xet-backed binary upload.
+- Deployed with `huggingface_hub.HfApi.upload_folder`, excluding `.git/**`.
+- Final uploaded commit: `15ffca389731c50eb305d95fe6b7c2167cad1838`.
+- Runtime status after deploy: `RUNNING`.
 
-Commands:
+## 真实链路验收
 
-- `npm run space:prepare`: passed
-  - Output directory: `dist/hf-space`
-  - Generated files: 47
-  - Includes `scripts/verify-hf-space.mjs` and `scripts/verify-hf-space-core.mjs`.
-- `npm run space:deploy -- --remote .codexmobile/hf-space-bare.git`: passed
-  - Local bare remote received `refs/heads/main`.
-  - Temporary deploy git metadata was removed from `dist/hf-space` after push.
-- `npm run space:doctor`: failed as expected in current shell
-  - Missing `CODEXMOBILE_RELAY_URL`, `CODEXMOBILE_RELAY_SECRET`, HuggingFace Space git remote, and HuggingFace token or authenticated git credential helper.
-- `npm run test:space-verify`: passed
-  - Covers Space URL normalization from HTTPS and `wss://.../relay/mac`.
-  - Covers public read-only verification for `/`, `/api/status`, `/ws/realtime`, and unauthenticated `/api/projects`.
-  - Covers fallback PWA detection.
-  - Covers explicit pair-code flow, authenticated `/api/projects`, browser `/ws` connected event, and opt-in `/api/chat/send`.
-- `npm --prefix dist/hf-space ci`: passed
-  - `postinstall` patched Codex SDK spawn options.
-  - `found 0 vulnerabilities`
-- `npm --prefix dist/hf-space run build`: passed
-  - Vite production build completed.
-- `PORT=9791 HOST=127.0.0.1 CODEXMOBILE_RELAY_SECRET=<redacted> npm --prefix dist/hf-space run start:relay`: passed
-  - `GET http://127.0.0.1:9791/api/status` returned `mode: relay`.
-  - `macConnected` was `false`, as expected without a Mac connector.
-- `docker build -t codexmobile-relay-smoke:phase1 .`: passed
-  - Docker relay image built successfully from the repo root.
-- `docker run -p 9795:7860 codexmobile-relay-smoke:phase1`: passed
-  - `/api/status` returned `mode: relay`, `relayState: pairing_required`, and `macConnected: false`.
-  - `/` returned built PWA HTML from the container.
-  - Container logs showed `CodexMobile relay listening on http://0.0.0.0:7860`.
-- `npm run smoke:relay:browser-fixture`: passed
-  - Output URL: `http://127.0.0.1:9792`
-  - Browser token: `valid-token`
-  - Chat rate limit fixture: enabled
-  - `SIGUSR2` disconnect path for the fake Mac connector was verified in-browser.
-- `find dist/hf-space ...`: passed
-  - No `.env`, `.codexmobile`, `node_modules`, `.git`, `*.log`, or `status.json` remained after regeneration.
+Public read-only verifier:
 
-Deployment package constraints:
+```bash
+npm run space:verify -- --url https://misonl-codexmobile-relay.hf.space --json
+```
 
-- Space README YAML is generated with `sdk: docker` and `app_port: 7860`.
-- `CODEXMOBILE_RELAY_SECRET` is documented only as a Space secret placeholder.
-- The generated package includes `Dockerfile`, `package*.json`, `client/`, `server/`, and relay-required scripts.
-- The generated package excludes local state, dependencies, logs, runtime output, and credentials.
+Result:
+
+- Passed 4 checks.
+- `/` returned built PWA HTML.
+- `/api/status` returned relay mode.
+- `/ws/realtime` returned `501 relay_realtime_unsupported`.
+- Unauthenticated `/api/projects` returned `401 pairing_required`.
+
+Full verifier with Mac connector:
+
+```bash
+npm run space:verify -- --url https://misonl-codexmobile-relay.hf.space --pair-code 123456 --chat-message "CodexMobile relay verification" --require-mac --json
+```
+
+Final result:
+
+- Passed 8 checks, failed 0, skipped 0.
+- PWA load: passed.
+- `/api/status`: passed.
+- `/ws/realtime`: passed.
+- Unauthenticated `/api/projects`: passed.
+- Pair through Space: passed.
+- Authenticated `/api/projects`: passed, `projects=8`.
+- Browser `/ws`: passed, `relayState=ready`.
+- `/api/chat/send`: passed, returned `202` and a browser WebSocket event was received.
+
+Chrome browser verification:
+
+- Opened `https://misonl-codexmobile-relay.hf.space`.
+- Pairing screen loaded.
+- Entered test pairing code `123456`.
+- UI switched to `已连接`.
+- Project list and sessions loaded from the Mac side.
+
+## 恢复验证
+
+Mac connector stopped:
+
+- Space `/api/status` switched to `macConnected=false`.
+- Authenticated `/api/projects` returned:
+
+```json
+{ "status": 503, "error": "mac_offline" }
+```
+
+Mac local service stopped while connector remained online:
+
+- Space observed `macConnected=true` and `localStatus.reachable=false`.
+- Authenticated `/api/projects` returned:
+
+```json
+{ "status": 503, "error": "mac_local_offline" }
+```
+
+Space restart:
+
+- `huggingface_hub.HfApi.restart_space(repo_id="misonL/codexmobile-relay")` requested a Space restart.
+- Runtime returned to `RUNNING` on commit `15ffca389731c50eb305d95fe6b7c2167cad1838`.
+- First run exposed a connector bug: reconnect timer used `.unref()` and the connector process exited after Space restart.
+- Fixed `scripts/relay-mac-client.mjs` so the reconnect timer keeps the process alive.
+- After the fix, connector logs showed:
+  - `state=reconnecting`
+  - `state=connecting`
+  - `state=authenticating`
+  - `state=online`
+- Existing browser token was revalidated after Space restart:
+  - Passed 6 checks with `CODEXMOBILE_DEVICE_TOKEN`.
+  - Authenticated `/api/projects`: passed, `projects=8`.
+  - Browser `/ws`: passed, `relayState=ready`.
+
+## 日志与敏感信息
+
+Space log scan:
+
+- Checked latest 36 Space log lines.
+- No matches for:
+  - relay secret
+  - browser token
+  - pairing code
+  - `Authorization` / `Bearer`
+  - chat body
+  - local absolute repo path
+
+Repository scan:
+
+- Scanned tracked and untracked text files outside `dist/`, `.git/`, and `node_modules/`.
+- No matches for the generated relay secret or browser token.
+
+Local secret handling:
+
+- Relay secret is stored locally in ignored runtime state: `.codexmobile/state/hf-space-relay-secret.txt`.
+- Browser token was used only for verification and must not be committed.
 
 ## Phase 1 门禁矩阵
 
 | Gate | Evidence | Status |
 | --- | --- | --- |
 | Phase 1A build | `npm run build` | Passed |
-| Phase 1A local direct smoke | `CODEXMOBILE_URL=http://127.0.0.1:3321/api/status npm run smoke` | Passed |
+| Phase 1A local direct smoke | `CODEXMOBILE_URL=http://127.0.0.1:3321/api/status npm run smoke` | Passed in earlier gate |
 | Phase 1A relay protocol smoke | `npm run smoke:relay` | Passed |
-| Frontend relay UX | in-app Browser fixture: ready, `mac_offline`, `relay_rate_limited` | Passed |
-| Connector reconnect policy | `npm run smoke:relay` covers active/idle cap, stable reset, reconnect epoch failure | Passed |
+| Frontend relay UX | Chrome local fixture and real Space browser pairing | Passed |
+| Connector reconnect policy | `npm run smoke:relay`; real Space restart recovery | Passed after reconnect timer fix |
 | Docker Space package | `npm run space:prepare`; `dist/hf-space` generated without secrets | Passed |
-| Space git deploy path | `npm run space:deploy -- --remote .codexmobile/hf-space-bare.git` | Passed with local bare remote |
-| Space deploy preflight | `npm run space:doctor` | Blocked: missing relay URL, relay secret, Space remote, and HuggingFace credentials |
-| Space post-deploy verifier | `npm run test:space-verify` | Passed for verifier contract; real URL run remains blocked |
-| Docker Space container probe | `docker build` + `docker run -p 9795:7860` | Passed |
-| Phase 1B real Space deploy | Create/update HuggingFace Docker Space | Blocked: no HuggingFace credentials or target Space |
-| Phase 1B public mobile flow | Space URL PWA load, pair, `/api/projects`, `/api/chat/send`, `/ws` | Blocked: no public Space URL or relay secret |
-| Phase 1B recovery checks | stop connector, stop local server, restart Space | Blocked: requires real Space runtime |
-| Phase 1B log inspection | Space and Mac logs contain no secret/token/body/path leakage | Blocked: requires real Space runtime |
-
-## HuggingFace Space 试运行状态
-
-真实 HuggingFace Space 试运行未执行。当前阻塞是外部凭据与目标环境缺失，而不是代码或本地验证失败。
-
-Observed blockers:
-
-- `CODEXMOBILE_RELAY_URL` is not set.
-- `CODEXMOBILE_RELAY_SECRET` is not set.
-- `HF_TOKEN` and `HUGGINGFACE_HUB_TOKEN` are not set.
-- `hf` and `huggingface-cli` are not installed in the shell environment.
-- `huggingface_hub` Python package is not installed in the shell environment.
-- HuggingFace browser API `GET /api/whoami-v2` returned `401`.
-- Chrome HuggingFace session is not authenticated; the page shows `Log In` and `Sign Up`.
-- No HuggingFace git remote is configured.
-- No target Space URL or Space secret was available for deployment.
-
-## 未执行项
-
-- Create or update HuggingFace Docker Space.
-- Configure Space variables and `CODEXMOBILE_RELAY_SECRET`.
-- Start Mac local server and connector against the real Space URL.
-- Pair through the Space URL.
-- Run `npm run space:verify` against the real Space URL.
-- Verify `/api/projects`, `/api/chat/send`, `/ws`, `mac_offline`, `mac_local_offline`, and Space restart recovery through the public Space URL.
-- Inspect Space and Mac logs for sensitive data.
-
-## 恢复条件
-
-To complete Phase 1B, provide one of the following:
-
-- A valid HuggingFace token with permission to create or update the target Space.
-- An already configured Space URL plus the matching relay secret.
-- An interactive HuggingFace login session usable by CLI or browser with permission to manage the target Space.
-
-After credentials are available, push `dist/hf-space` to the target HuggingFace Docker Space repository, configure the Space variables and secret from `docs/relay-deployment-runbook.md`, then update this report with the real Space URL, command results, log review, and pass or fail conclusion.
+| Space deployment | `HfApi.upload_folder` to `misonL/codexmobile-relay` | Passed |
+| Public Space flow | `space:verify` public checks | Passed |
+| Authenticated Space flow | pair, `/api/projects`, `/ws`, `/api/chat/send` | Passed |
+| Mac connector stop recovery | `503 mac_offline` | Passed |
+| Mac local service stop recovery | `503 mac_local_offline` | Passed |
+| Space restart recovery | connector reconnect and token revalidation | Passed |
+| Log sensitive data inspection | Space log scan and repo scan | Passed |
 
 ## 结论
 
-Phase 1A, local browser validation, and the no-secret Docker Space deployment package are complete. Phase 1B real HuggingFace Space validation remains blocked until HuggingFace credentials and target Space details are available.
+Phase 1A and Phase 1B are complete for the implemented Phase 1 scope. The HuggingFace Space relay is deployed, the Mac connector can bridge real browser traffic to the Mac local CodexMobile runtime, and the recovery paths for connector stop, local service stop, and Space restart have been verified.
+
+Out of scope for Phase 1:
+
+- `/ws/realtime` voice relay.
+- Streaming upload, speech, generated images, and large binary transfer.
+- Multi-Mac routing.
+- Long-term secret rotation with a dual-secret grace window.

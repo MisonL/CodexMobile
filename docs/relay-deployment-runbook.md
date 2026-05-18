@@ -84,6 +84,25 @@ npm run space:deploy -- --remote <huggingface-space-git-remote>
 
 该命令会先刷新 `dist/hf-space`，再在工作目录内初始化临时 git 仓库、提交生成产物并强制推送到目标 remote。推送前必须先在 HuggingFace Space Settings 中配置 `CODEXMOBILE_RELAY_SECRET`。
 
+如果 HuggingFace git pre-receive 拒绝 PNG 等二进制文件，改用 Hub API 上传目录：
+
+```bash
+uv run --with huggingface_hub python - <<'PY'
+import os
+from huggingface_hub import HfApi
+
+HfApi(token=os.environ["HF_TOKEN"]).upload_folder(
+    repo_id="<user-or-org>/<space-name>",
+    repo_type="space",
+    folder_path="dist/hf-space",
+    ignore_patterns=[".git/**"],
+    commit_message="deploy: CodexMobile Relay",
+)
+PY
+```
+
+该路径会通过 Hub/Xet 上传二进制资源，不需要把 token 写入 remote URL。
+
 部署前医生检查：
 
 ```bash
@@ -229,6 +248,7 @@ Phase 1 单 secret 轮换：
 | 现象 | 优先检查 |
 | --- | --- |
 | Space 一直 Starting | README YAML 是否为 `sdk: docker`，`app_port` 是否与 `PORT` 一致，容器是否监听 `0.0.0.0`。 |
+| git push 被拒绝二进制文件 | 使用 `huggingface_hub.HfApi.upload_folder` 上传 `dist/hf-space`，不要把 token 写入 git remote。 |
 | `/api/status` 失败 | Space logs、`CODEXMOBILE_MODE`、`CODEXMOBILE_RELAY_SECRET` 长度。 |
 | `mac_offline` | connector 是否运行，`CODEXMOBILE_RELAY_URL` 是否是 `wss://.../relay/mac`。 |
 | `mac_local_offline` | Mac 本地 `http://127.0.0.1:3321/api/status` 是否可访问。 |
