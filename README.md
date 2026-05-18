@@ -102,6 +102,14 @@ Space 启动命令：
 npm run start:relay
 ```
 
+生成不含密钥的 HuggingFace Docker Space 工作目录：
+
+```bash
+npm run space:prepare
+```
+
+默认输出到 `dist/hf-space`。将该目录内容推送到目标 Space 仓库后，再在 HuggingFace Space Settings 中配置 `CODEXMOBILE_RELAY_SECRET`。
+
 Mac 端需要先启动本地 CodexMobile，再启动 connector：
 
 ```bash

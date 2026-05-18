@@ -11,6 +11,7 @@ npm install
 npm run build
 npm run smoke
 npm run smoke:relay
+npm run space:prepare
 npm audit --audit-level=high
 git diff --check
 ```
@@ -50,6 +51,14 @@ sdk: docker
 app_port: 7860
 ---
 ```
+
+推荐先生成 HuggingFace Docker Space 工作目录：
+
+```bash
+npm run space:prepare
+```
+
+默认输出到 `dist/hf-space`，目录内包含 Space README YAML、Dockerfile、`package*.json`、`client/`、`server/` 和运行 relay 所需的 `scripts/`。该目录不得包含 `.env`、`.codexmobile/`、`node_modules/` 或任何 relay secret。
 
 Space variables：
 

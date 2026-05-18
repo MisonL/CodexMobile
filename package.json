@@ -13,6 +13,7 @@
     "start:env": "node --env-file=.env server/index.js",
     "start:bg": "node scripts/start-server.mjs",
     "relay:mac": "node scripts/relay-mac-client.mjs",
+    "space:prepare": "node scripts/prepare-hf-space.mjs",
     "asr:start": "node scripts/start-asr.mjs",
     "postinstall": "node scripts/patch-codex-sdk.mjs",
     "smoke": "node scripts/smoke.mjs",
