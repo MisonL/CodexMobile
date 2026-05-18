@@ -71,6 +71,7 @@ function detailFor(report, id) {
 
 function startSpaceFixture({ fallbackPwa = false, authenticated = false } = {}) {
   const wss = new WebSocketServer({ noServer: true });
+  const browserSockets = new Set();
   const server = http.createServer((req, res) => {
     if (req.url === '/') {
       const body = fallbackPwa
@@ -107,6 +108,9 @@ function startSpaceFixture({ fallbackPwa = false, authenticated = false } = {}) 
     }
     if (req.url === '/api/chat/send' && req.method === 'POST' && req.headers.authorization === 'Bearer valid-token') {
       sendJson(res, 202, { accepted: true, turnId: 'turn-1' });
+      for (const ws of browserSockets) {
+        ws.send(JSON.stringify({ type: 'status-update', status: 'running' }));
+      }
       return;
     }
     sendJson(res, 404, { error: 'not_found' });
@@ -119,6 +123,8 @@ function startSpaceFixture({ fallbackPwa = false, authenticated = false } = {}) 
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
+      browserSockets.add(ws);
+      ws.on('close', () => browserSockets.delete(ws));
       ws.send(JSON.stringify({
         type: 'connected',
         status: { mode: 'relay', relayState: 'ready', macConnected: true }
@@ -133,6 +139,7 @@ function startSpaceFixture({ fallbackPwa = false, authenticated = false } = {}) 
       resolve({
         url: `http://127.0.0.1:${address.port}`,
         close: () => new Promise((done) => {
+          for (const ws of browserSockets) ws.close();
           wss.close(() => server.close(done));
         })
       });

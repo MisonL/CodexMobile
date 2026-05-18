@@ -408,7 +408,7 @@ function connect() {
       });
       reconnectDelayMs = delay.nextDelayMs;
       onlineSinceMs = 0;
-      setTimeout(connect, delay.delayMs).unref?.();
+      setTimeout(connect, delay.delayMs);
     }
   });
   ws.on('error', (error) => {

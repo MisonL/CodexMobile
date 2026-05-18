@@ -181,13 +181,17 @@ async function verifyBrowserWebSocket(spaceUrl, token, timeoutMs) {
 async function verifyChatSend(spaceUrl, context, options, timeoutMs) {
   const projectId = options.projectId || context.projects[0]?.id;
   if (!projectId) throw new Error('missing project id for chat send.');
-  const result = await requestJsonOrText(`${spaceUrl}/api/chat/send`, {
-    timeoutMs,
-    method: 'POST',
-    headers: { ...authHeaders(context.token), 'content-type': 'application/json' },
-    body: JSON.stringify({ projectId, message: options.chatMessage })
-  });
-  if (result.status !== 202) throw new Error(`expected 202, got ${result.status}`);
+  const wsUrl = `${wsOrigin(spaceUrl)}/ws?token=${encodeURIComponent(context.token)}`;
+  const isChatEvent = (payload) => ['status-update', 'assistant-update', 'chat-complete'].includes(payload.type);
+  const event = await waitForWsEvent(wsUrl, timeoutMs, isChatEvent, async () => {
+      const result = await requestJsonOrText(`${spaceUrl}/api/chat/send`, {
+        timeoutMs, method: 'POST',
+        headers: { ...authHeaders(context.token), 'content-type': 'application/json' },
+        body: JSON.stringify({ projectId, message: options.chatMessage })
+      });
+      if (result.status !== 202) throw new Error(`expected 202, got ${result.status}`);
+    });
+  if (!event?.type) throw new Error('chat websocket event was not received.');
   return `projectId=${projectId}`;
 }
 async function requestJsonOrText(url, { timeoutMs, ...options } = {}) {
@@ -201,13 +205,21 @@ async function requestJsonOrText(url, { timeoutMs, ...options } = {}) {
     clearTimeout(timer);
   }
 }
-function waitForWsEvent(wsUrl, timeoutMs, predicate) {
+function waitForWsEvent(wsUrl, timeoutMs, predicate, afterOpen = null) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(wsUrl);
     const timer = setTimeout(() => {
       ws.terminate();
       reject(new Error('timed out waiting for browser WebSocket event'));
     }, timeoutMs || DEFAULT_TIMEOUT_MS);
+    const fail = (error) => {
+      clearTimeout(timer);
+      ws.close();
+      reject(error);
+    };
+    if (afterOpen) {
+      ws.once('open', () => Promise.resolve().then(afterOpen).catch(fail));
+    }
     ws.on('message', (raw) => {
       const payload = safeJson(raw.toString());
       if (!payload || !predicate(payload)) return;
