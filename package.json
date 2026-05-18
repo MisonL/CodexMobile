@@ -15,6 +15,7 @@
     "relay:mac": "node scripts/relay-mac-client.mjs",
     "space:prepare": "node scripts/prepare-hf-space.mjs",
     "space:deploy": "node scripts/deploy-hf-space.mjs",
+    "space:doctor": "node scripts/space-doctor.mjs",
     "smoke:relay:browser-fixture": "node scripts/relay-browser-fixture.mjs",
     "asr:start": "node scripts/start-asr.mjs",
     "postinstall": "node scripts/patch-codex-sdk.mjs",

@@ -42,6 +42,8 @@ Commands:
 - `npm run space:deploy -- --remote .codexmobile/hf-space-bare.git`: passed
   - Local bare remote received `refs/heads/main`.
   - Temporary deploy git metadata was removed from `dist/hf-space` after push.
+- `npm run space:doctor`: failed as expected in current shell
+  - Missing `CODEXMOBILE_RELAY_URL`, `CODEXMOBILE_RELAY_SECRET`, HuggingFace Space git remote, and HuggingFace token or authenticated git credential helper.
 - `npm --prefix dist/hf-space ci`: passed
   - `postinstall` patched Codex SDK spawn options.
   - `found 0 vulnerabilities`
@@ -76,6 +78,7 @@ Deployment package constraints:
 | Connector reconnect policy | `npm run smoke:relay` covers active/idle cap, stable reset, reconnect epoch failure | Passed |
 | Docker Space package | `npm run space:prepare`; `dist/hf-space` generated without secrets | Passed |
 | Space git deploy path | `npm run space:deploy -- --remote .codexmobile/hf-space-bare.git` | Passed with local bare remote |
+| Space deploy preflight | `npm run space:doctor` | Blocked: missing relay URL, relay secret, Space remote, and HuggingFace credentials |
 | Phase 1B real Space deploy | Create/update HuggingFace Docker Space | Blocked: no HuggingFace credentials or target Space |
 | Phase 1B public mobile flow | Space URL PWA load, pair, `/api/projects`, `/api/chat/send`, `/ws` | Blocked: no public Space URL or relay secret |
 | Phase 1B recovery checks | stop connector, stop local server, restart Space | Blocked: requires real Space runtime |

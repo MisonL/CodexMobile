@@ -116,6 +116,12 @@ npm run space:prepare
 npm run space:deploy -- --remote <huggingface-space-git-remote>
 ```
 
+部署前检查当前机器是否具备真实试运行条件：
+
+```bash
+npm run space:doctor -- --remote <huggingface-space-git-remote>
+```
+
 Mac 端需要先启动本地 CodexMobile，再启动 connector：
 
 ```bash

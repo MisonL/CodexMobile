@@ -13,6 +13,7 @@ npm run smoke
 npm run smoke:relay
 npm run space:prepare
 npm run smoke:relay:browser-fixture
+npm run space:doctor
 npm audit --audit-level=high
 git diff --check
 ```
@@ -81,6 +82,14 @@ npm run space:deploy -- --remote <huggingface-space-git-remote>
 ```
 
 该命令会先刷新 `dist/hf-space`，再在工作目录内初始化临时 git 仓库、提交生成产物并强制推送到目标 remote。推送前必须先在 HuggingFace Space Settings 中配置 `CODEXMOBILE_RELAY_SECRET`。
+
+部署前医生检查：
+
+```bash
+npm run space:doctor
+```
+
+该命令只输出当前机器缺失项，不会触发外网部署。可通过 `--remote <huggingface-space-git-remote>` 或 `CODEXMOBILE_HF_SPACE_REMOTE` 提供目标 Space git remote。缺少 Space git remote、`CODEXMOBILE_RELAY_URL`、`CODEXMOBILE_RELAY_SECRET`、HuggingFace token 或已授权 git credential helper 时，视为真实 Space 试运行仍阻塞。`hf`/`huggingface-cli` 仅作为观察项，不是 `space:deploy` 的硬依赖。
 
 Space variables：
 
