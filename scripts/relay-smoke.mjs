@@ -513,6 +513,100 @@ async function verifyGlobalPendingLimit(mac) {
   return delayedMac;
 }
 
+async function expectDifferentMacRejected() {
+  const ws = new WebSocket(relayUrl, {
+    headers: { authorization: `Bearer ${secret}` }
+  });
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      ws.terminate();
+      reject(new Error('timed out waiting for different Mac rejection'));
+    }, 3000);
+    ws.on('open', () => {
+      ws.send(JSON.stringify({
+        type: 'mac.hello',
+        protocolVersion: 1,
+        connectorInstanceId: 'other-mac',
+        deviceName: 'other-mac',
+        clientVersion: '0.1.0',
+        localStatus: { reachable: true, checkedAt: new Date().toISOString() },
+        capabilities: ['http', 'events']
+      }));
+    });
+    ws.on('message', (raw) => {
+      const message = JSON.parse(raw.toString());
+      if (message.type === 'relay.hello') {
+        clearTimeout(timer);
+        ws.close();
+        reject(new Error('different Mac connector should not receive relay.hello'));
+      }
+    });
+    ws.on('close', (code, reason) => {
+      clearTimeout(timer);
+      if (code === 4009 && String(reason) === 'ambiguous_mac_route') {
+        resolve();
+        return;
+      }
+      reject(new Error(`expected 4009 ambiguous_mac_route, got ${code}:${reason}`));
+    });
+    ws.on('error', reject);
+  });
+}
+
+async function expectMissingConnectorIdRejected() {
+  const ws = new WebSocket(relayUrl, {
+    headers: { authorization: `Bearer ${secret}` }
+  });
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      ws.terminate();
+      reject(new Error('timed out waiting for missing connectorInstanceId rejection'));
+    }, 3000);
+    ws.on('open', () => {
+      ws.send(JSON.stringify({
+        type: 'mac.hello',
+        protocolVersion: 1,
+        connectorInstanceId: '',
+        deviceName: 'missing-id-mac',
+        clientVersion: '0.1.0',
+        localStatus: { reachable: true, checkedAt: new Date().toISOString() },
+        capabilities: ['http', 'events']
+      }));
+    });
+    ws.on('message', (raw) => {
+      const message = JSON.parse(raw.toString());
+      if (message.type === 'relay.hello') {
+        clearTimeout(timer);
+        ws.close();
+        reject(new Error('missing connectorInstanceId should not receive relay.hello'));
+      }
+    });
+    ws.on('close', (code, reason) => {
+      clearTimeout(timer);
+      if (code === 4002 && String(reason) === 'invalid_connector_instance_id') {
+        resolve();
+        return;
+      }
+      reject(new Error(`expected 4002 invalid_connector_instance_id, got ${code}:${reason}`));
+    });
+    ws.on('error', reject);
+  });
+}
+
+async function verifyDifferentMacDoesNotReplaceActiveMac(mac) {
+  await expectMissingConnectorIdRejected();
+  await expectDifferentMacRejected();
+  const status = await request('/api/status', { headers: { authorization: 'Bearer valid-token' } });
+  if (status.data.macDeviceName !== 'test-mac' || status.data.metrics?.multiMacRejectedTotal !== 1) {
+    fail('different Mac connector should be rejected without replacing active Mac', status);
+  }
+  const result = await request('/api/projects', { headers: { authorization: 'Bearer valid-token' } });
+  if (result.response.status !== 200 || result.data.projects?.[0]?.id !== 'mac-project') {
+    fail('active Mac should continue serving after different Mac rejection', result);
+  }
+  return mac;
+}
+
 async function verifyIdleAndActiveHeartbeat(mac) {
   await new Promise((resolve) => setTimeout(resolve, 250));
   const idlePings = mac.messages.filter((message) => message.type === 'ping').length;
@@ -707,6 +801,7 @@ async function main() {
     await verifyRelaySecretRotationGraceWindow();
     await verifyMacOfflineState();
     const mac = await connectMac({ relayUrl, secret, reachable: true });
+    await verifyDifferentMacDoesNotReplaceActiveMac(mac);
     await verifyIdleAndActiveHeartbeat(mac);
     const pendingLimitMac = await verifyBrowserPendingLimit(await verifyForwardedHttp(mac));
     const globalLimitMac = await verifyGlobalPendingLimit(pendingLimitMac);

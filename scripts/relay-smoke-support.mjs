@@ -47,7 +47,15 @@ export function expectRejectedMacSecret(relayUrl) {
   });
 }
 
-export function connectMac({ relayUrl, secret, reachable = true, delayProjects = false, rateLimitChat = false } = {}) {
+export function connectMac({
+  relayUrl,
+  secret,
+  reachable = true,
+  delayProjects = false,
+  rateLimitChat = false,
+  connectorInstanceId = 'test-mac',
+  deviceName = 'test-mac'
+} = {}) {
   const ws = new WebSocket(relayUrl, {
     headers: {
       authorization: `Bearer ${secret}`
@@ -74,8 +82,8 @@ export function connectMac({ relayUrl, secret, reachable = true, delayProjects =
       ws.send(JSON.stringify({
         type: 'mac.hello',
         protocolVersion: 1,
-        connectorInstanceId: 'test-mac',
-        deviceName: 'test-mac',
+        connectorInstanceId,
+        deviceName,
         clientVersion: '0.1.0',
         localStatus: { reachable, checkedAt: new Date().toISOString() },
         capabilities: ['http', 'events']

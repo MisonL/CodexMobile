@@ -394,8 +394,10 @@ connector 不应试图用持续人工流量阻止 HuggingFace 免费层休眠。
 - Space 必须拒绝未知 connector 协议版本。
 - 默认每个 relay secret 只有一个 active Mac connector。
 - 每个 connector 有 `connectorInstanceId`、`connectionId` 和 `macConnectionEpoch`。
+- `connectorInstanceId` 不能为空，否则 relay 必须拒绝 `mac.hello`。
 - pending request 绑定创建它的 epoch。
 - 来自同一 connector instance 的有效重连可以抢占旧 socket。
+- 来自不同 connector instance 的并发 Mac 必须被拒绝为 `ambiguous_mac_route`，不得替换 active Mac。
 - 抢占会让旧 pending request 以 `502 mac_reconnected` 失败。
 - 旧 epoch 的迟到响应必须忽略。
 

@@ -226,6 +226,8 @@ Space 分配：
 连接替换：
 
 - 携带有效 relay secret 且 `connectorInstanceId` 相同的新连接可以抢占旧 socket。
+- 缺失或为空的 `connectorInstanceId` 必须关闭为 `invalid_connector_instance_id`。
+- 携带有效 relay secret 但 `connectorInstanceId` 不同的新连接必须被拒绝为 `ambiguous_mac_route`，直到实现显式 multi-Mac route。
 - 抢占时旧待处理请求以 `502 mac_reconnected` 失败。
 - 旧 epoch 的迟到响应必须忽略。
 - 抢占后向浏览器 socket 广播 `relay-status`。

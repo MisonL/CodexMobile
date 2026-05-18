@@ -218,6 +218,8 @@ pending request 清理：
 - timeout 时向浏览器返回 `502`，并忽略同 `requestId` 的迟到响应。
 - 无效 response envelope 会关闭 Mac socket，并让 pending request 失败。
 - Mac 重连时分配新的 `macConnectionEpoch`；旧 epoch 的迟到响应必须忽略。
+- 缺失或为空的 `connectorInstanceId` 必须关闭为 `4002 invalid_connector_instance_id`。
+- 不同 `connectorInstanceId` 的并发 Mac 连接必须关闭为 `4009 ambiguous_mac_route`，直到实现显式 multi-Mac route。
 
 大型 request/response body 不得作为单个 base64 JSON message 缓冲。Phase 1 只支持小型有界 body。完整 upload、voice、speech、generated-image 能力需要 `docs/relay-system-design.md` 中定义的分块流协议。
 
@@ -299,6 +301,8 @@ relay 将 `payload` 广播给已鉴权浏览器 `/ws` socket。
 | --- | --- |
 | Mac connector 未连接 | 可转发 HTTP route 返回 `503 mac_offline`。 |
 | Mac 已连接但本地 server 离线 | 可转发 HTTP route 返回 `503 mac_local_offline`。 |
+| Mac hello 缺失 connector ID | 新 WebSocket 关闭为 `4002 invalid_connector_instance_id`。 |
+| 不同 Mac connector 并发连接 | 新 WebSocket 关闭为 `4009 ambiguous_mac_route`。 |
 | Mac 在请求期间断开 | Pending request 返回 `502`。 |
 | Mac 响应 timeout | 请求返回 `502`。 |
 | Mac auth 无效 | WebSocket 以 `401` 拒绝。 |

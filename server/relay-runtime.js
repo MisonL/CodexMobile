@@ -32,7 +32,8 @@ export function createRelayRuntime({
     macAuthFailuresTotal: 0,
     macConnectsTotal: 0,
     macDisconnectsTotal: 0,
-    macHeartbeatMissesTotal: 0
+    macHeartbeatMissesTotal: 0,
+    multiMacRejectedTotal: 0
   };
 
   let macSocket = null;
@@ -218,7 +219,23 @@ export function createRelayRuntime({
   }
 
   function attachMacSocket(ws, hello = {}) {
+    const nextConnectorId = String(hello.connectorInstanceId || '').trim();
+    if (!nextConnectorId) {
+      ws.close(4002, 'invalid_connector_instance_id');
+      logRelayEvent('mac.rejected', { reason: 'invalid_connector_instance_id' }, 'warn');
+      return;
+    }
     if (macSocket && macSocket.readyState === macSocket.OPEN) {
+      if (macInfo?.connectorInstanceId !== nextConnectorId) {
+        metrics.multiMacRejectedTotal += 1;
+        ws.close(4009, 'ambiguous_mac_route');
+        logRelayEvent('mac.rejected', {
+          reason: 'ambiguous_mac_route',
+          activeConnectorInstanceId: macInfo.connectorInstanceId,
+          rejectedConnectorInstanceId: nextConnectorId
+        }, 'warn');
+        return;
+      }
       const oldEpoch = macConnectionEpoch;
       failPendingForEpoch(oldEpoch, 502, 'mac_reconnected');
       try {
@@ -231,7 +248,7 @@ export function createRelayRuntime({
     macConnectionEpoch += 1;
     macSocket = ws;
     macInfo = {
-      connectorInstanceId: hello.connectorInstanceId || '',
+      connectorInstanceId: nextConnectorId,
       connectionId: createRequestId(),
       deviceName: hello.deviceName || 'Mac',
       clientVersion: hello.clientVersion || '',
