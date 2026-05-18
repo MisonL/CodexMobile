@@ -84,7 +84,7 @@ npm run space:deploy -- --remote <huggingface-space-git-remote>
 
 该命令会先刷新 `dist/hf-space`，再在工作目录内初始化临时 git 仓库、提交生成产物并强制推送到目标 remote。推送前必须先在 HuggingFace Space Settings 中配置 `CODEXMOBILE_RELAY_SECRET`。
 
-如果 HuggingFace git pre-receive 拒绝 PNG 等二进制文件，改用 Hub API 上传目录：
+部署脚本会在检测到 `git-lfs` 时为 PNG/JPG/WebP/GIF/ICO 启用 LFS 指针，避免 HuggingFace git pre-receive 拒绝原始二进制图标。如果仍被拒绝，改用 Hub API 上传目录：
 
 ```bash
 uv run --with huggingface_hub python - <<'PY'

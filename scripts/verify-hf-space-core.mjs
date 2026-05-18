@@ -280,7 +280,8 @@ function findSensitiveKey(value, prefix = '') {
   if (!value || typeof value !== 'object') return '';
   for (const [key, child] of Object.entries(value)) {
     const path = prefix ? `${prefix}.${key}` : key;
-    if (SENSITIVE_KEY_PATTERN.test(key)) return path;
+    if (path.startsWith('secrets.') && path !== 'secrets.previousConfigured') return path;
+    if (SENSITIVE_KEY_PATTERN.test(key) && path !== 'secrets') return path;
     const nested = findSensitiveKey(child, path);
     if (nested) return nested;
   }

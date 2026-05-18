@@ -29,6 +29,29 @@ test('verifySpace performs public read-only checks without a browser token', asy
   }
 });
 
+test('verifySpace allows safe relay secret metadata without exposing secret values', async () => {
+  const fixture = await startSpaceFixture({ exposeSecretMetadata: true });
+  try {
+    const report = await verifySpace({ spaceUrl: fixture.url, timeoutMs: 1000 });
+    assert.equal(report.ok, true);
+    assert.equal(statusFor(report, 'status'), 'passed');
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('verifySpace rejects status responses that expose actual secret values', async () => {
+  const fixture = await startSpaceFixture({ exposeSecretValue: true });
+  try {
+    const report = await verifySpace({ spaceUrl: fixture.url, timeoutMs: 1000 });
+    assert.equal(report.ok, false);
+    assert.equal(statusFor(report, 'status'), 'failed');
+    assert.match(detailFor(report, 'status'), /secret/i);
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('verifySpace fails when Space serves fallback text instead of the built PWA', async () => {
   const fixture = await startSpaceFixture({ fallbackPwa: true });
   try {
@@ -69,7 +92,7 @@ function detailFor(report, id) {
   return report.checks.find((check) => check.id === id)?.detail || '';
 }
 
-function startSpaceFixture({ fallbackPwa = false, authenticated = false } = {}) {
+function startSpaceFixture({ fallbackPwa = false, authenticated = false, exposeSecretMetadata = false, exposeSecretValue = false } = {}) {
   const wss = new WebSocketServer({ noServer: true });
   const browserSockets = new Set();
   const server = http.createServer((req, res) => {
@@ -86,7 +109,9 @@ function startSpaceFixture({ fallbackPwa = false, authenticated = false } = {}) 
         mode: 'relay',
         relayState: authenticated ? 'ready' : 'pairing_required',
         macConnected: authenticated,
-        localStatus: { reachable: authenticated, checkedAt: new Date().toISOString() }
+        localStatus: { reachable: authenticated, checkedAt: new Date().toISOString() },
+        ...(exposeSecretMetadata ? { secrets: { previousConfigured: true } } : {}),
+        ...(exposeSecretValue ? { secrets: { current: 'should-not-leak' } } : {})
       });
       return;
     }

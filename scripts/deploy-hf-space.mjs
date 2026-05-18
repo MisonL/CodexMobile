@@ -86,6 +86,11 @@ function run(command, args, options = {}) {
   }
 }
 
+function hasCommand(command) {
+  const result = spawnSync(process.platform === 'win32' ? 'where' : 'which', [command], { stdio: 'pipe' });
+  return result.status === 0;
+}
+
 function assertSourceDir(sourceDir) {
   const resolved = path.resolve(sourceDir);
   if (!fs.existsSync(resolved)) {
@@ -96,12 +101,21 @@ function assertSourceDir(sourceDir) {
   }
 }
 
+function configureBinaryStorage(sourceDir) {
+  if (!hasCommand('git-lfs')) {
+    return;
+  }
+  run('git', ['-C', sourceDir, 'lfs', 'install', '--local']);
+  run('git', ['-C', sourceDir, 'lfs', 'track', '*.png', '*.jpg', '*.jpeg', '*.webp', '*.gif', '*.ico']);
+}
+
 function initDeployRepo(sourceDir, branch) {
   const gitDir = path.join(sourceDir, '.git');
   fs.rmSync(gitDir, { recursive: true, force: true });
   run('git', ['-C', sourceDir, 'init', '-b', branch]);
   run('git', ['-C', sourceDir, 'config', 'user.name', 'Codex']);
   run('git', ['-C', sourceDir, 'config', 'user.email', 'codex@openai.com']);
+  configureBinaryStorage(sourceDir);
   run('git', ['-C', sourceDir, 'add', '-A']);
   run('git', ['-C', sourceDir, 'commit', '-m', 'deploy: CodexMobile Relay']);
 }
