@@ -248,7 +248,7 @@ export function createRelayHttpHandler({ clientDist, maxBodyBytes, requestTimeou
 
   async function requireBrowserAuth(req, res) {
     const token = browserTokenFromHeaders(req.headers);
-    if (token && !consumeRateLimit(req, res, 'token', token)) {
+    if (token && !runtime.hasCachedBrowserToken(token) && !consumeRateLimit(req, res, 'token', token)) {
       return '';
     }
     try {

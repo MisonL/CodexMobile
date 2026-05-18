@@ -99,7 +99,8 @@ Relay secret：
 Phase 1 最小策略：
 
 - `/api/pair` 按可信 client IP 做内存限流。
-- token validation miss 按 token hash 前缀和可信 client IP 做内存限流。
+- token validation cache miss 按 token hash 前缀和可信 client IP 做内存限流；已缓存通过的 browser token 不消耗该限流 bucket。
+- 该 token validation bucket 不是已鉴权请求的通用速率上限；如进入多用户或 hostile 网络环境，需要单独设计 per-token request cap。
 - Mac connector 鉴权失败按 socket remote address 做短 TTL deny list。
 - 限流命中返回 `429 relay_rate_limited`。
 

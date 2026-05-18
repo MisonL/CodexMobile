@@ -3,6 +3,7 @@ import WebSocket from 'ws';
 export const DEFAULT_TIMEOUT_MS = 10000;
 const FALLBACK_TEXT = 'Build the PWA with: npm run build';
 const SENSITIVE_KEY_PATTERN = /secret|token|authorization|cookie|pairingCode/i;
+const REALTIME_AVAILABILITY_ERRORS = new Set(['mac_offline', 'mac_local_offline']);
 export function normalizeSpaceBaseUrl(input) {
   const value = String(input || '').trim();
   if (!value) throw new Error('Missing Space URL.');
@@ -38,6 +39,11 @@ export function parseArgs(argv, env = process.env) {
     else if (item === '--timeout-ms') options.timeoutMs = positiveInt(requireValue(argv, ++index, item), item);
     else if (item.startsWith('--timeout-ms=')) options.timeoutMs = positiveInt(item.slice(13), '--timeout-ms');
     else if (item === '--require-mac') options.requireMac = true;
+    else if (item === '--check-realtime') options.checkRealtime = true;
+    else if (item === '--require-realtime-ready') {
+      options.checkRealtime = true;
+      options.requireRealtimeReady = true;
+    }
     else if (item === '--json') options.json = true;
     else throw new Error(`Unknown argument: ${item}`);
   }
@@ -71,6 +77,8 @@ function defaultOptions(env) {
     projectId: '',
     timeoutMs: DEFAULT_TIMEOUT_MS,
     requireMac: false,
+    checkRealtime: false,
+    requireRealtimeReady: false,
     json: false
   };
 }
@@ -81,6 +89,8 @@ function createReport(options) {
     spaceUrl,
     timeoutMs: positiveInt(options.timeoutMs || DEFAULT_TIMEOUT_MS, 'timeoutMs'),
     requireMac: Boolean(options.requireMac),
+    checkRealtime: Boolean(options.checkRealtime || options.requireRealtimeReady),
+    requireRealtimeReady: Boolean(options.requireRealtimeReady),
     checks: []
   };
 }
@@ -106,6 +116,13 @@ async function runAuthenticatedChecks(report, context, options) {
   await runCheck(report, 'browserWebSocket', 'Browser WebSocket receives connected event', () => {
     return verifyBrowserWebSocket(report.spaceUrl, context.token, report.timeoutMs);
   });
+  if (options.checkRealtime || options.requireRealtimeReady) {
+    await runCheck(report, 'realtimeWebSocket', 'Realtime WebSocket tunnel', () => {
+      return verifyRealtimeWebSocket(report.spaceUrl, context.token, report.timeoutMs, options.requireRealtimeReady);
+    });
+  } else {
+    skip(report, 'realtimeWebSocket', 'Realtime WebSocket tunnel', 'missing --check-realtime');
+  }
   if (!options.chatMessage) {
     skip(report, 'chatSend', 'Chat send', 'missing --chat-message');
     return;
@@ -117,6 +134,7 @@ async function runAuthenticatedChecks(report, context, options) {
 function skipAuthChecks(report, detail) {
   skip(report, 'authenticatedProjects', 'Authenticated project list', detail);
   skip(report, 'browserWebSocket', 'Browser WebSocket', detail);
+  skip(report, 'realtimeWebSocket', 'Realtime WebSocket tunnel', detail);
   skip(report, 'chatSend', 'Chat send', detail);
 }
 async function verifyPwa(spaceUrl, timeoutMs) {
@@ -178,6 +196,24 @@ async function verifyBrowserWebSocket(spaceUrl, token, timeoutMs) {
   if (event.status?.mode !== 'relay') throw new Error('connected event did not include relay status.');
   return `relayState=${event.status.relayState}`;
 }
+async function verifyRealtimeWebSocket(spaceUrl, token, timeoutMs, requireReady = false) {
+  const wsUrl = `${wsOrigin(spaceUrl)}/ws/realtime?token=${encodeURIComponent(token)}`;
+  const event = await waitForWsEvent(wsUrl, timeoutMs, (payload) => {
+    return payload.type === 'voice.realtime.ready' || payload.type === 'voice.realtime.error' || payload.type === 'error';
+  });
+  const eventType = event.type || 'message';
+  const errorCode = String(event.error || event.code || '');
+  if (REALTIME_AVAILABILITY_ERRORS.has(errorCode)) {
+    throw new Error(`realtime tunnel unavailable: ${errorCode}`);
+  }
+  if (requireReady && eventType !== 'voice.realtime.ready') {
+    throw new Error(`expected voice.realtime.ready, got ${eventType}${errorCode ? `: ${errorCode}` : ''}`);
+  }
+  if (eventType === 'voice.realtime.ready') {
+    return 'voice.realtime.ready';
+  }
+  return `tunnel event=${eventType}${errorCode ? ` error=${errorCode.slice(0, 120)}` : ''}`;
+}
 async function verifyChatSend(spaceUrl, context, options, timeoutMs) {
   const projectId = options.projectId || context.projects[0]?.id;
   if (!projectId) throw new Error('missing project id for chat send.');
@@ -208,14 +244,24 @@ async function requestJsonOrText(url, { timeoutMs, ...options } = {}) {
 function waitForWsEvent(wsUrl, timeoutMs, predicate, afterOpen = null) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(wsUrl);
+    let settled = false;
     const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
       ws.terminate();
       reject(new Error('timed out waiting for browser WebSocket event'));
     }, timeoutMs || DEFAULT_TIMEOUT_MS);
-    const fail = (error) => {
+    const finish = (handler, value, close = true) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      ws.close();
-      reject(error);
+      if (close && [ws.OPEN, ws.CONNECTING].includes(ws.readyState)) {
+        ws.close();
+      }
+      handler(value);
+    };
+    const fail = (error) => {
+      finish(reject, error);
     };
     if (afterOpen) {
       ws.once('open', () => Promise.resolve().then(afterOpen).catch(fail));
@@ -223,17 +269,23 @@ function waitForWsEvent(wsUrl, timeoutMs, predicate, afterOpen = null) {
     ws.on('message', (raw) => {
       const payload = safeJson(raw.toString());
       if (!payload || !predicate(payload)) return;
-      clearTimeout(timer);
-      ws.close();
-      resolve(payload);
+      finish(resolve, payload);
     });
     ws.on('unexpected-response', (_request, response) => {
-      clearTimeout(timer);
-      reject(new Error(`browser WebSocket rejected with ${response.statusCode}`));
+      finish(reject, new Error(`browser WebSocket rejected with ${response.statusCode}`), false);
     });
     ws.on('error', (error) => {
-      clearTimeout(timer);
-      reject(error);
+      finish(reject, error, false);
+    });
+    ws.on('close', (code, reason) => {
+      const detail = reason?.toString() || '';
+      setImmediate(() => {
+        finish(
+          reject,
+          new Error(`browser WebSocket closed before matching event: code=${code}${detail ? ` reason=${detail.slice(0, 120)}` : ''}`),
+          false
+        );
+      });
     });
   });
 }

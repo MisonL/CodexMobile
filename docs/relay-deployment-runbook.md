@@ -131,6 +131,11 @@ npm run space:verify -- --url https://<space>.hf.space --token <browser-device-t
 
 `space:verify` 不需要 relay secret，不会输出浏览器 token。默认只做 `/`、`/api/status`、`/ws/realtime` 的 HTTP fallback 和未认证 `/api/projects` 的只读检查；提供 token 或 pair code 后才验证 `/api/projects` 与 `/ws`。
 
+Realtime WebSocket 会触发 Mac 本地实时语音链路，默认不自动打开：
+
+- 验证 tunnel 时追加 `--check-realtime`。该检查接受 `voice.realtime.ready` 或非 availability 类 `voice.realtime.error` 作为 tunnel 到达 Mac 的证据；`mac_offline` 和 `mac_local_offline` 仍视为失败。
+- 若要把真实 provider ready 作为门禁，追加 `--require-realtime-ready`，此时只有 `voice.realtime.ready` 才通过。
+
 Space variables：
 
 ```text

@@ -24,8 +24,8 @@ The real Space authenticated browser and realtime tunnel checks were completed e
 
 | Command | Exit | Result |
 | --- | --- | --- |
-| `node --check scripts/deploy-hf-space.mjs && node --check scripts/verify-hf-space-core.mjs && node --check tests/space-verify.test.mjs && npm run test:space-verify && npm run smoke:relay && npm run smoke && npm run build` | 0 | Passed; space verifier tests 6/6, relay smoke ok, local smoke ok, Vite build ok. |
-| `npm run space:verify -- --url https://misonl-codexmobile-relay.hf.space --json` | 0 | Passed public checks: PWA, safe status, realtime HTTP fallback, unauthenticated pairing requirement; authenticated checks skipped without token or pair code. |
+| `node --check scripts/deploy-hf-space.mjs && node --check scripts/verify-hf-space-core.mjs && node --check tests/space-verify.test.mjs && npm run test:space-verify && npm run smoke:relay && npm run smoke && npm run build` | 0 | Passed; space verifier tests 11/11, relay smoke ok, local smoke ok, Vite build ok. |
+| `npm run space:verify -- --url https://misonl-codexmobile-relay.hf.space --json` | 0 | Passed public checks: PWA, safe status, realtime HTTP fallback, unauthenticated pairing requirement; authenticated checks skipped without token or pair code. Realtime WebSocket remains opt-in via `--check-realtime`. |
 | `git diff --check` | 0 | Passed. |
 | `gh pr view 4 --repo RNG2018-mlxg/CodexMobile --json number,title,state,isDraft,headRefName,headRepositoryOwner,baseRefName,url,reviewDecision,statusCheckRollup` | 0 | PR #4 is open, not draft, base `main`, head `MisonL:codex/relay-phase1`, with no status checks configured. |
 

@@ -59,6 +59,15 @@ export function createRelayRuntime({
     }
   }
 
+  function hasCachedBrowserToken(token) {
+    if (!token) {
+      return false;
+    }
+    cleanupTokenCache();
+    const cached = validTokenCache.get(tokenCacheKey(token));
+    return Boolean(cached && cached.expiresAt > Date.now());
+  }
+
   function relayState(authenticated) {
     if (!authenticated) {
       return 'pairing_required';
@@ -682,6 +691,7 @@ export function createRelayRuntime({
     sendMacRequestFrame,
     failMacRequest,
     macBufferedAmount,
+    hasCachedBrowserToken,
     validateBrowserToken,
     acceptMacSocket,
     acceptBrowserSocket,

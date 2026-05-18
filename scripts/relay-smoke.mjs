@@ -483,6 +483,16 @@ async function verifyForwardedHttp(mac) {
   return mac;
 }
 
+async function verifyCachedTokenBypassesValidationRateLimit(mac) {
+  for (let index = 0; index < 64; index += 1) {
+    const result = await request('/api/projects', { headers: { authorization: 'Bearer valid-token' } });
+    if (result.response.status !== 200 || result.data.projects?.[0]?.id !== 'mac-project') {
+      fail('cached valid token should not consume token validation miss limit', { index, result });
+    }
+  }
+  return mac;
+}
+
 async function verifyBrowserPendingLimit(mac) {
   mac.ws.close();
   await new Promise((resolve) => setTimeout(resolve, 100));
@@ -857,7 +867,7 @@ async function main() {
     const mac = await connectMac({ relayUrl, secret, reachable: true });
     await verifyDifferentMacDoesNotReplaceActiveMac(mac);
     await verifyIdleAndActiveHeartbeat(mac);
-    const pendingLimitMac = await verifyBrowserPendingLimit(await verifyForwardedHttp(mac));
+    const pendingLimitMac = await verifyBrowserPendingLimit(await verifyCachedTokenBypassesValidationRateLimit(await verifyForwardedHttp(mac)));
     const globalLimitMac = await verifyGlobalPendingLimit(pendingLimitMac);
     globalLimitMac.ws.close();
     await new Promise((resolve) => setTimeout(resolve, 100));
