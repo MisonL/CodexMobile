@@ -52,6 +52,12 @@ Commands:
 - `PORT=9791 HOST=127.0.0.1 CODEXMOBILE_RELAY_SECRET=<redacted> npm --prefix dist/hf-space run start:relay`: passed
   - `GET http://127.0.0.1:9791/api/status` returned `mode: relay`.
   - `macConnected` was `false`, as expected without a Mac connector.
+- `docker build -t codexmobile-relay-smoke:phase1 .`: passed
+  - Docker relay image built successfully from the repo root.
+- `docker run -p 9795:7860 codexmobile-relay-smoke:phase1`: passed
+  - `/api/status` returned `mode: relay`, `relayState: pairing_required`, and `macConnected: false`.
+  - `/` returned built PWA HTML from the container.
+  - Container logs showed `CodexMobile relay listening on http://0.0.0.0:7860`.
 - `npm run smoke:relay:browser-fixture`: passed
   - Output URL: `http://127.0.0.1:9792`
   - Browser token: `valid-token`
@@ -79,6 +85,7 @@ Deployment package constraints:
 | Docker Space package | `npm run space:prepare`; `dist/hf-space` generated without secrets | Passed |
 | Space git deploy path | `npm run space:deploy -- --remote .codexmobile/hf-space-bare.git` | Passed with local bare remote |
 | Space deploy preflight | `npm run space:doctor` | Blocked: missing relay URL, relay secret, Space remote, and HuggingFace credentials |
+| Docker Space container probe | `docker build` + `docker run -p 9795:7860` | Passed |
 | Phase 1B real Space deploy | Create/update HuggingFace Docker Space | Blocked: no HuggingFace credentials or target Space |
 | Phase 1B public mobile flow | Space URL PWA load, pair, `/api/projects`, `/api/chat/send`, `/ws` | Blocked: no public Space URL or relay secret |
 | Phase 1B recovery checks | stop connector, stop local server, restart Space | Blocked: requires real Space runtime |
