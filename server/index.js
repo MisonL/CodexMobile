@@ -1529,7 +1529,6 @@ async function main() {
   const auth = await initializeAuth();
   await loadFeishuAuthState();
   await loadRecentImagePrompts();
-  await refreshCodexCache();
 
   const server = http.createServer(requestHandler);
   const wss = new WebSocketServer({ noServer: true });
@@ -1570,6 +1569,11 @@ async function main() {
     console.log(`CodexMobile listening on http://${HOST}:${PORT}`);
     console.log(`Pairing code: ${getPairingCode()} (${auth.trustedDevices} trusted device(s)${auth.fixedPairingCode ? ', fixed' : ''})`);
     console.log('Use Tailscale and open http://<this-pc-tailscale-ip>:3321 on iPhone.');
+    refreshCodexCache().then((snapshot) => {
+      broadcast({ type: 'sync-complete', syncedAt: snapshot.syncedAt, projects: snapshot.projects });
+    }).catch((error) => {
+      console.warn('[sync] Initial cache refresh failed:', error.message);
+    });
   });
 
   try {
