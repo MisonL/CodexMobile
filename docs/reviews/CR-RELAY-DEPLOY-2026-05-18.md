@@ -22,8 +22,11 @@
 - `CODEXMOBILE_URL=http://127.0.0.1:3321/api/status npm run smoke`: passed
 - `git diff --check`: passed
 - Real browser local relay check: passed
-  - `mac_offline` rendered `Mac 未连接` and disabled composer actions.
-  - `429 relay_rate_limited` with `retryAfter=20` disabled send with countdown text.
+  - Fixture URL: `http://127.0.0.1:9792`
+  - Ready state rendered `已连接`, project list, and the composer.
+  - `mac_offline` rendered `Mac 未连接` and disabled composer actions while preserving the draft.
+  - `429 relay_rate_limited` disabled only the send action and rendered `请求过快，请 18 秒后再试`.
+  - Screenshot captured at `.codexmobile/relay-browser-offline.png`.
 
 ## HuggingFace Space 部署包
 
@@ -42,6 +45,11 @@ Commands:
 - `PORT=9791 HOST=127.0.0.1 CODEXMOBILE_RELAY_SECRET=<redacted> npm --prefix dist/hf-space run start:relay`: passed
   - `GET http://127.0.0.1:9791/api/status` returned `mode: relay`.
   - `macConnected` was `false`, as expected without a Mac connector.
+- `npm run smoke:relay:browser-fixture`: passed
+  - Output URL: `http://127.0.0.1:9792`
+  - Browser token: `valid-token`
+  - Chat rate limit fixture: enabled
+  - `SIGUSR2` disconnect path for the fake Mac connector was verified in-browser.
 - `find dist/hf-space ...`: passed
   - No `.env`, `.codexmobile`, `node_modules`, `.git`, `*.log`, or `status.json` remained after regeneration.
 

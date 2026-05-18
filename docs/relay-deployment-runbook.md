@@ -12,6 +12,7 @@ npm run build
 npm run smoke
 npm run smoke:relay
 npm run space:prepare
+npm run smoke:relay:browser-fixture
 npm audit --audit-level=high
 git diff --check
 ```
@@ -37,6 +38,19 @@ docker rm -f codexmobile-relay-smoke-run
 - 新容器返回 `macConnected: false`。
 - `/` 返回构建后的 PWA HTML，不是 fallback 文本。
 - 本地直连 `npm run smoke` 仍通过。
+
+本地浏览器 UX fixture：
+
+```bash
+npm run build
+npm run smoke:relay:browser-fixture
+```
+
+打开 fixture 输出的本地 URL，并在浏览器本地存储中写入 `codexmobile.deviceToken=valid-token` 后刷新页面。通过条件：
+
+- 顶栏显示 `已连接`，项目名来自 fake Mac connector。
+- 停止 fixture 或断开 fake Mac 后，页面变为 `Mac 未连接`，发送、上传和语音入口不可继续发起新任务。
+- 使用 `CODEXMOBILE_RELAY_FIXTURE_RATE_LIMIT_CHAT=1 npm run smoke:relay:browser-fixture` 启动时，发送文本后只禁用发送操作，并显示 `请求过快，请 ... 秒后再试`。
 
 ## 2. HuggingFace Space 配置
 

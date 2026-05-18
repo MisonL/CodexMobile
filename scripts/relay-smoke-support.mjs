@@ -47,7 +47,7 @@ export function expectRejectedMacSecret(relayUrl) {
   });
 }
 
-export function connectMac({ relayUrl, secret, reachable = true, delayProjects = false } = {}) {
+export function connectMac({ relayUrl, secret, reachable = true, delayProjects = false, rateLimitChat = false } = {}) {
   const ws = new WebSocket(relayUrl, {
     headers: {
       authorization: `Bearer ${secret}`
@@ -66,7 +66,7 @@ export function connectMac({ relayUrl, secret, reachable = true, delayProjects =
       return;
     }
     if (message.type === 'http.request') {
-      replyHttpRequest(ws, message, delayProjects);
+      replyHttpRequest(ws, message, { delayProjects, rateLimitChat });
     }
   });
   return new Promise((resolve, reject) => {
@@ -101,7 +101,7 @@ function replyAuthValidate(ws, message) {
   }));
 }
 
-function replyHttpRequest(ws, message, delayProjects) {
+function replyHttpRequest(ws, message, { delayProjects = false, rateLimitChat = false } = {}) {
   const reply = () => {
     if (message.path === '/api/pair') {
       sendHttpResponse(ws, message, 200, {
@@ -112,11 +112,27 @@ function replyHttpRequest(ws, message, delayProjects) {
     }
     if (message.path === '/api/projects') {
       sendHttpResponse(ws, message, 200, {
-        projects: [{ id: 'mac-project', name: 'Mac Project' }]
+        projects: [{ id: 'mac-project', name: 'Mac Project', path: '/tmp/codexmobile-relay-fixture' }]
       });
       return;
     }
+    if (message.path === '/api/projects/mac-project/sessions') {
+      sendHttpResponse(ws, message, 200, { sessions: [] });
+      return;
+    }
+    if (message.path.startsWith('/api/sessions/') && message.path.endsWith('/messages?limit=120')) {
+      sendHttpResponse(ws, message, 200, { messages: [] });
+      return;
+    }
+    if (message.path === '/api/sync') {
+      sendHttpResponse(ws, message, 200, { ok: true });
+      return;
+    }
     if (message.path === '/api/chat/send') {
+      if (rateLimitChat) {
+        sendHttpResponse(ws, message, 429, { error: 'relay_rate_limited', retryAfter: 20 });
+        return;
+      }
       sendHttpResponse(ws, message, 202, { accepted: true, turnId: 'turn-1' });
       ws.send(JSON.stringify({
         type: 'event',
