@@ -91,8 +91,8 @@ async function runPublicChecks(report, context, options) {
     context.status = status;
     return `relayState=${status.relayState} macConnected=${Boolean(status.macConnected)}`;
   });
-  await runCheck(report, 'realtimeUnsupported', 'Realtime WebSocket fails explicitly', () => {
-    return verifyRealtimeUnsupported(report.spaceUrl, report.timeoutMs);
+  await runCheck(report, 'realtimeHttpFallback', 'Realtime WebSocket HTTP fallback is explicit', () => {
+    return verifyRealtimeHttpFallback(report.spaceUrl, report.timeoutMs);
   });
   await runCheck(report, 'unauthenticatedProjects', 'Unauthenticated projects requires pairing', () => {
     return verifyUnauthenticatedProjects(report.spaceUrl, report.timeoutMs);
@@ -139,12 +139,12 @@ async function verifyStatus(spaceUrl, timeoutMs, requireMac) {
   }
   return result.data;
 }
-async function verifyRealtimeUnsupported(spaceUrl, timeoutMs) {
+async function verifyRealtimeHttpFallback(spaceUrl, timeoutMs) {
   const result = await requestJsonOrText(`${spaceUrl}/ws/realtime`, { timeoutMs });
-  if (result.status !== 501 || result.data?.error !== 'relay_realtime_unsupported') {
-    throw new Error(`expected 501 relay_realtime_unsupported, got ${result.status}`);
+  if (result.status !== 501 || result.data?.error !== 'relay_realtime_http_upgrade_required') {
+    throw new Error(`expected 501 relay_realtime_http_upgrade_required, got ${result.status}`);
   }
-  return 'relay_realtime_unsupported';
+  return 'relay_realtime_http_upgrade_required';
 }
 async function verifyUnauthenticatedProjects(spaceUrl, timeoutMs) {
   const result = await requestJsonOrText(`${spaceUrl}/api/projects`, { timeoutMs });

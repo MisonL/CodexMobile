@@ -27,10 +27,10 @@
 | `pairing_required` | `authenticated=false` 或 401 `pairing_required` | 需要配对 | 显示配对页，禁用项目和发送 | 否 |
 | `mac_offline` | `macConnected=false` | Mac 未连接 | 禁用发送、上传、语音、图片；允许刷新状态 | 是 |
 | `mac_local_offline` | `localStatus.reachable=false` | 本地服务离线 | 禁用业务操作；提示先启动 Mac 本地服务 | 是 |
-| `ready` | `authenticated=true`、`macConnected=true`、`localStatus.reachable=true` | 已连接 | 允许 Phase 1 支持的文本与普通 `/ws` 功能 | 是 |
+| `ready` | `authenticated=true`、`macConnected=true`、`localStatus.reachable=true` | 已连接 | 允许文本、普通 `/ws`、streaming media 与 realtime voice | 是 |
 | `degraded` | 计数器显示 timeout 或 heartbeat miss 上升 | 连接不稳定 | 允许轻量操作，显示非阻塞提示 | 是 |
 | `rate_limited` | 429 `relay_rate_limited` | 请求过快 | 禁用触发该限流的按钮到 `retryAfter` | 延迟 |
-| `unsupported` | 501 `relay_streaming_required` 或 `relay_realtime_unsupported` | 中转暂不支持 | 显示功能级提示，不清除登录态 | 否 |
+| `unsupported` | 501 `relay_streaming_required`、`relay_realtime_unsupported` 或 `relay_realtime_http_upgrade_required` | 中转暂不支持 | 显示功能级提示，不清除登录态 | 否 |
 | `disconnected` | 浏览器 `/ws` 断开且 HTTP status 不可用 | 已断开 | 保留页面状态，禁用新请求 | 是 |
 
 ## 3. Phase 1 功能开关
@@ -54,9 +54,12 @@ Relay response streaming 已允许：
 - `/generated/*` 生成图片二进制读取。
 - `/api/voice/speech` 语音朗读音频流。
 
-Relay Phase 1 禁用或提示不支持：
+Relay realtime tunnel 已允许：
 
 - `/ws/realtime` 实时语音。
+
+Relay 仍禁用或提示不支持：
+
 - 大响应下载。
 
 禁用规则：
@@ -76,7 +79,8 @@ Relay Phase 1 禁用或提示不支持：
 | `mac_reconnected` | Mac 连接已刷新，请重试。 | 自动刷新状态，允许重试。 |
 | `relay_body_too_large` | 当前中转模式不支持这么大的内容。 | 保留输入，不自动重试。 |
 | `relay_streaming_required` | 此能力需要本地直连或后续流式中转支持。 | 不清除 token。 |
-| `relay_realtime_unsupported` | 实时语音暂不支持中转模式。 | 建议使用本地直连。 |
+| `relay_realtime_unsupported` | 实时语音中转不可用。 | 保留登录态，提示检查 Space、Mac connector 和本地服务版本。 |
+| `relay_realtime_http_upgrade_required` | 实时语音需要 WebSocket 连接。 | 不清除 token。 |
 | `relay_rate_limited` | 请求过快，请稍后再试。 | 按 `retryAfter` 禁用对应操作。 |
 
 ## 5. 前端验收
@@ -95,4 +99,4 @@ Relay Phase 1 禁用或提示不支持：
 
 - mock `/api/status` 为每个 relay state，截图确认顶栏、按钮和提示。
 - mock `/api/chat/send` 返回 `503 mac_offline`，确认输入不丢失。
-- mock `/ws/realtime` 返回 `501 relay_realtime_unsupported`，确认显示 unsupported 文案。
+- mock `/ws/realtime` WebSocket 转发 `voice.realtime.ready`，确认实时语音入口可进入 ready 状态。

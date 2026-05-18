@@ -530,7 +530,7 @@ export function createRelayHttpHandler({ clientDist, maxBodyBytes, requestTimeou
     const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
     try {
       if (url.pathname === '/ws/realtime') {
-        sendJson(res, 501, { error: 'relay_realtime_unsupported' });
+        sendJson(res, 501, { error: 'relay_realtime_http_upgrade_required' });
         return;
       }
       if (url.pathname.startsWith('/api/')) {

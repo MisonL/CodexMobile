@@ -58,7 +58,7 @@ function writeUpgradeStatus(socket, status, reason) {
   socket.destroy();
 }
 
-function createUpgradeHandler(runtime, macWss, browserWss, rateLimiter) {
+function createUpgradeHandler(runtime, macWss, browserWss, realtimeWss, rateLimiter) {
   return function handleUpgrade(req, socket, head) {
     const url = new URL(req.url || '/', `http://${req.headers.host || `127.0.0.1:${PORT}`}`);
     if (url.pathname === '/relay/mac') {
@@ -66,7 +66,7 @@ function createUpgradeHandler(runtime, macWss, browserWss, rateLimiter) {
       return;
     }
     if (url.pathname === '/ws/realtime') {
-      writeUpgradeStatus(socket, 501, 'Not Implemented');
+      handleRealtimeUpgrade(url, req, socket, head, realtimeWss, runtime);
       return;
     }
     if (url.pathname === '/ws') {
@@ -111,6 +111,19 @@ function handleBrowserUpgrade(url, req, socket, head, browserWss, runtime) {
   });
 }
 
+function handleRealtimeUpgrade(url, req, socket, head, realtimeWss, runtime) {
+  const token = url.searchParams.get('token') || '';
+  runtime.validateBrowserToken(token).then((valid) => {
+    if (!valid) {
+      writeUpgradeStatus(socket, 401, 'Unauthorized');
+      return;
+    }
+    realtimeWss.handleUpgrade(req, socket, head, (ws) => runtime.acceptRealtimeSocket(ws, token));
+  }).catch((error) => {
+    writeUpgradeStatus(socket, error.status || 503, 'Service Unavailable');
+  });
+}
+
 function main() {
   assertRelayConfig();
   const rateLimiter = createMemoryRateLimiter();
@@ -136,8 +149,9 @@ function main() {
   const server = http.createServer(requestHandler);
   const macWss = new WebSocketServer({ noServer: true });
   const browserWss = new WebSocketServer({ noServer: true });
+  const realtimeWss = new WebSocketServer({ noServer: true });
 
-  server.on('upgrade', createUpgradeHandler(runtime, macWss, browserWss, rateLimiter));
+  server.on('upgrade', createUpgradeHandler(runtime, macWss, browserWss, realtimeWss, rateLimiter));
   server.listen(PORT, HOST, () => {
     logRelayEvent('relay.started', { host: HOST, port: PORT });
     console.log(`CodexMobile relay listening on http://${HOST}:${PORT}`);

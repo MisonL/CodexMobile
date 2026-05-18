@@ -219,12 +219,26 @@ function startLocalCodexFixture() {
   const wss = new WebSocketServer({ noServer: true });
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url || '/', `http://${req.headers.host || `127.0.0.1:${localFixturePort}`}`);
-    if (url.pathname !== '/ws' || url.searchParams.get('token') !== 'valid-token') {
+    if (!['/ws', '/ws/realtime'].includes(url.pathname) || url.searchParams.get('token') !== 'valid-token') {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
       socket.destroy();
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
+      if (url.pathname === '/ws/realtime') {
+        ws.send(JSON.stringify({ type: 'voice.realtime.ready', fixture: true }));
+        ws.on('message', (raw, isBinary) => {
+          if (isBinary) {
+            ws.send(raw, { binary: true });
+            return;
+          }
+          const payload = JSON.parse(raw.toString());
+          if (payload.type === 'voice.test.ping') {
+            ws.send(JSON.stringify({ type: 'voice.test.pong', text: payload.text }));
+          }
+        });
+        return;
+      }
       browserSockets.add(ws);
       ws.on('close', () => browserSockets.delete(ws));
       ws.send(JSON.stringify({ type: 'connected', status: { connected: true } }));
@@ -667,8 +681,8 @@ async function verifyReconnectAndUnsupportedRoutes() {
   replacementMac.ws.close();
 
   result = await request('/ws/realtime?token=valid-token');
-  if (result.response.status !== 501 || result.data.error !== 'relay_realtime_unsupported') {
-    fail('/ws/realtime should fail explicitly in Phase 1', result);
+  if (result.response.status !== 501 || result.data.error !== 'relay_realtime_http_upgrade_required') {
+    fail('/ws/realtime HTTP fallback should require WebSocket upgrade', result);
   }
 }
 
@@ -692,6 +706,46 @@ async function verifyRealConnectorForwardsLocalWsEvents() {
     ws.close();
     if (event.status !== 'running' || event.turnId !== 'fixture-turn') {
       fail('real connector should forward local ws status-update event', event);
+    }
+  } finally {
+    connector.kill('SIGTERM');
+    await local.close();
+  }
+}
+
+async function verifyRealConnectorTunnelsRealtimeVoice() {
+  const local = await startLocalCodexFixture();
+  const connector = spawnConnector(local.url);
+  try {
+    await waitForMacConnected();
+    const ws = new WebSocket(`${baseUrl.replace('http:', 'ws:')}/ws/realtime?token=valid-token`);
+    await once(ws, 'open');
+    const ready = await nextBrowserEvent(ws, 'voice.realtime.ready', 5000);
+    if (ready.fixture !== true) {
+      fail('realtime relay should forward local ready event', ready);
+    }
+    const pongPromise = nextBrowserEvent(ws, 'voice.test.pong', 5000);
+    ws.send(JSON.stringify({ type: 'voice.test.ping', text: 'hello-realtime' }));
+    const pong = await pongPromise;
+    const binaryPromise = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timed out waiting for realtime binary echo')), 5000);
+      ws.once('message', (raw, isBinary) => {
+        clearTimeout(timer);
+        if (!isBinary) {
+          reject(new Error('realtime binary echo should stay binary'));
+          return;
+        }
+        resolve(Buffer.from(raw));
+      });
+    });
+    ws.send(Buffer.from([1, 2, 3, 4]), { binary: true });
+    const binaryEcho = await binaryPromise;
+    ws.close();
+    if (pong.text !== 'hello-realtime') {
+      fail('realtime relay should forward browser frames to local realtime websocket', pong);
+    }
+    if (!binaryEcho.equals(Buffer.from([1, 2, 3, 4]))) {
+      fail('realtime relay should preserve binary websocket frames', binaryEcho);
     }
   } finally {
     connector.kill('SIGTERM');
@@ -813,6 +867,7 @@ async function main() {
     await new Promise((resolve) => setTimeout(resolve, 100));
     await verifyReconnectAndUnsupportedRoutes();
     await verifyRealConnectorForwardsLocalWsEvents();
+    await verifyRealConnectorTunnelsRealtimeVoice();
     await verifyRealConnectorStreamsMultipartRequests();
     await verifyRealConnectorStreamsGeneratedAssets();
     await verifyRealConnectorStreamsSpeechAudio();

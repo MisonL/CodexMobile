@@ -125,7 +125,7 @@ Space 中转服务对已认证 API 请求使用 default-forward 策略。
 特殊路径：
 
 - `/api/feishu/auth/callback` 发布前必须明确归类。第一版中转服务要么在文档化 public URL 配置后转发到 Mac，要么返回 `501 relay_unsupported` 并给出清晰 UI 提示。
-- `/ws/realtime` 不属于 Phase 1，除非实现带 backpressure 的全双工流。未实现时，Space 返回 `501 relay_realtime_unsupported`。
+- `/ws/realtime` 通过 `realtime.open`、`realtime.frame` 和 `realtime.close` 帧连接到 Mac 本地 `/ws/realtime`，由 Mac 本地服务继续作为实时语音业务事实源。
 - relay 模式下 `/generated/*` 必须要求浏览器鉴权，并通过 response streaming 带 backpressure 地转发到 Mac。Space 不落盘、不缓存。
 
 ## 6. 二进制与流式传输契约
@@ -187,6 +187,10 @@ upload、voice、speech audio、generated images 和大型响应的完整兼容�
 - `http.response.chunk`
 - `http.response.end`
 - `http.stream.error`
+- `realtime.open`
+- `realtime.frame`
+- `realtime.close`
+- `realtime.error`
 
 流式规则：
 
@@ -195,6 +199,7 @@ upload、voice、speech audio、generated images 和大型响应的完整兼容�
 - 当对端 WebSocket buffer 偏高时，必须暂停读取以实现 backpressure。
 - 断线时双方释放 pending buffer，并让请求失败。
 - 已关闭请求的迟到 chunk 必须忽略并安全记录。
+- realtime 帧必须带 `requestId`、单调递增 `sequence`、`encoding`、`bytes` 和 `macConnectionEpoch`，任一方向序号或字节数不匹配时关闭隧道。
 
 ## 7. Mac connector 连接模型
 
@@ -336,10 +341,6 @@ relay 模式下 `GET /api/status` 返回安全字段：
 { "error": "relay_streaming_required" }
 ```
 
-```json
-{ "error": "relay_realtime_unsupported" }
-```
-
 ## 12. 阶段门禁
 
 ### Phase 0：设计门禁
@@ -365,7 +366,7 @@ relay 模式下 `GET /api/status` 返回安全字段：
 - 通过 Space 调用 `/api/chat/send` 返回 `202`。
 - 浏览器 `/ws` 收到来自 Mac 的状态事件。
 - Mac 重连创建新 epoch，旧响应被忽略。
-- Phase 1 不支持的二进制与 realtime 路径显式失败。
+- Phase 1 不支持的二进制路径显式失败。
 
 ### Phase 2：二进制与媒体能力对齐
 
@@ -377,12 +378,13 @@ relay 模式下 `GET /api/status` 返回安全字段：
 - `/generated/*` 使用 chunked relay 转发到 Mac，要求鉴权，并且不在 Space 持久化。
 - 超限 body 返回 `413`。
 - 断线释放 pending stream 状态。
+- `/ws/realtime` 支持带 backpressure 的全双工隧道。
 
 ### Phase 3：realtime voice 与多设备加固
 
 必须通过：
 
-- `/ws/realtime` 支持带 backpressure 的全双工隧道。
+- `/ws/realtime` 真实 provider 端到端延迟、断线和取消路径通过运行态复验。
 - 浏览器重连后通过 Mac API 恢复状态。
 - 多浏览器 event fanout 的作用域清晰且有文档。
 - 如支持 multi-Mac，路由必须显式，禁止 ambiguous routing。

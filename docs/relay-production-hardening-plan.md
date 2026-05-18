@@ -33,7 +33,7 @@
 - 无 Mac connector 时，forwardable API 返回 `503 mac_offline`。
 - Mac connector 在线但本地服务离线时，返回 `503 mac_local_offline`。
 - 未认证浏览器请求返回 `401 pairing_required`。
-- `/ws/realtime` 和大型二进制 route 明确返回 `501` 或 `413`。
+- `/ws/realtime` HTTP fallback 明确返回 `501`，WebSocket 隧道走真实 connector；大型二进制 route 明确返回 `501` 或 `413`。
 - connector 只允许转发到配置的本地 CodexMobile origin，拒绝协议相对 URL 和绝对外部 URL。
 
 ### Phase 1B：真实公网试运行

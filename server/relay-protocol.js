@@ -97,7 +97,7 @@ export function buildLocalTargetUrl(forwardPath, localBaseUrl) {
 export function isRelayUnsupportedPath(pathname, contentType = '') {
   const path = String(pathname || '');
   if (path === '/ws/realtime') {
-    return 'relay_realtime_unsupported';
+    return 'relay_realtime_http_upgrade_required';
   }
   if (path.startsWith('/generated/')) {
     return 'relay_streaming_required';

@@ -132,7 +132,7 @@ relay 拓扑是新增路径，不是替代路径。
 | Path | 行为 |
 | --- | --- |
 | `/ws?token=...` | CodexMobile 状态更新的浏览器事件流。 |
-| `/ws/realtime?token=...` | 可选实时语音隧道，归入 Phase 2。 |
+| `/ws/realtime?token=...` | 实时语音 WebSocket 隧道，转发到 Mac 本地 `/ws/realtime`。 |
 
 ### Mac WebSocket
 
@@ -140,7 +140,7 @@ relay 拓扑是新增路径，不是替代路径。
 | --- | --- |
 | `/relay/mac` | 已鉴权的 Mac connector 控制通道。 |
 
-`/ws/realtime` 属于 Phase 2，除非已实现带 backpressure 的全双工 tunnel。Phase 1 必须返回 `501 relay_realtime_unsupported`，不得挂起。
+`/ws/realtime` 必须通过带 backpressure 的全双工 tunnel 转发，不得在 Space 复制实时语音 provider 业务逻辑。
 
 ## 6. 鉴权模型
 
@@ -453,7 +453,7 @@ Body limits：
    - oversized body 返回 `413`。
    - 本地 `npm start` 不要求 relay 环境变量。
    - 未认证访问 generated asset 返回 `401`。
-   - 不支持的 realtime relay 返回 `501`。
+   - realtime relay 通过真实 connector 转发到 Mac 本地 `/ws/realtime`。
 
 7. 新增本地双进程 integration smoke。
    - 启动本地 CodexMobile server。

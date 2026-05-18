@@ -49,6 +49,7 @@ let closing = false;
 let onlineSinceMs = 0;
 let relayActiveUntilMs = 0;
 const requestStreams = new Map();
+const realtimeTunnels = new Map();
 
 export function nextReconnectDelay(currentDelayMs, { active = false, idleHeartbeatMs = DEFAULT_RELAY_IDLE_HEARTBEAT_MS } = {}) {
   const capMs = active ? ACTIVE_RECONNECT_CAP_MS : idleHeartbeatMs;
@@ -87,6 +88,12 @@ function buildLocalWsUrl(token) {
   return url.toString();
 }
 
+function buildLocalRealtimeWsUrl(token) {
+  const url = new URL(buildLocalUrl(`/ws/realtime?token=${encodeURIComponent(token)}`));
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  return url.toString();
+}
+
 function closeLocalEventSocket() {
   const socket = localEventWs;
   localEventWs = null;
@@ -95,6 +102,32 @@ function closeLocalEventSocket() {
     socket.close();
   } else if (socket && socket.readyState === WebSocket.CONNECTING) {
     socket.terminate();
+  }
+}
+
+function closeRealtimeTunnel(requestId, { code = 1000, reason = 'relay_realtime_closed', notifyRelay = true } = {}) {
+  const tunnel = realtimeTunnels.get(requestId);
+  if (!tunnel) {
+    return;
+  }
+  realtimeTunnels.delete(requestId);
+  if (notifyRelay && ws?.readyState === ws?.OPEN) {
+    sendWsJson(ws, {
+      type: 'realtime.close',
+      requestId,
+      macConnectionEpoch: relayEpoch,
+      code,
+      reason
+    });
+  }
+  if ([tunnel.socket.OPEN, tunnel.socket.CONNECTING].includes(tunnel.socket.readyState)) {
+    tunnel.socket.close(code, reason);
+  }
+}
+
+function closeRealtimeTunnels() {
+  for (const requestId of realtimeTunnels.keys()) {
+    closeRealtimeTunnel(requestId, { code: 1001, reason: 'relay_disconnected', notifyRelay: false });
   }
 }
 
@@ -241,6 +274,16 @@ async function waitForConnectorBackpressure(maxBufferedBytes = DEFAULT_RELAY_WS_
   while ((ws?.bufferedAmount || 0) > maxBufferedBytes) {
     if (Date.now() - startedAt > WS_BUFFER_WAIT_TIMEOUT_MS) {
       throw Object.assign(new Error('relay_stream_backpressure_timeout'), { status: 502 });
+    }
+    await new Promise((resolve) => setTimeout(resolve, WS_BUFFER_CHECK_INTERVAL_MS));
+  }
+}
+
+async function waitForSocketBackpressure(socket, maxBufferedBytes = DEFAULT_RELAY_WS_BUFFERED_BYTES) {
+  const startedAt = Date.now();
+  while ((socket?.bufferedAmount || 0) > maxBufferedBytes) {
+    if (Date.now() - startedAt > WS_BUFFER_WAIT_TIMEOUT_MS) {
+      throw Object.assign(new Error('relay_realtime_backpressure_timeout'), { status: 502 });
     }
     await new Promise((resolve) => setTimeout(resolve, WS_BUFFER_CHECK_INTERVAL_MS));
   }
@@ -553,6 +596,90 @@ async function sendStreamResponse(requestId, response) {
   });
 }
 
+function sendRealtimeError(requestId, error) {
+  sendWsJson(ws, {
+    type: 'realtime.error',
+    requestId,
+    macConnectionEpoch: relayEpoch,
+    code: error?.code || 1011,
+    error: error?.message || 'relay_realtime_failed'
+  });
+}
+
+async function forwardRealtimeLocalFrame(requestId, raw, isBinary) {
+  const tunnel = realtimeTunnels.get(requestId);
+  if (!tunnel) {
+    return;
+  }
+  const bytes = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+  tunnel.toRelaySequence += 1;
+  await waitForConnectorBackpressure();
+  sendWsJson(ws, {
+    type: 'realtime.frame',
+    requestId,
+    macConnectionEpoch: relayEpoch,
+    sequence: tunnel.toRelaySequence,
+    encoding: isBinary ? 'base64' : 'text',
+    data: isBinary ? bytes.toString('base64') : bytes.toString('utf8'),
+    bytes: bytes.length
+  });
+}
+
+function handleRealtimeOpen(message) {
+  const requestId = message.requestId;
+  const token = String(message.token || '').trim();
+  if (!token) {
+    sendRealtimeError(requestId, new Error('relay_realtime_token_missing'));
+    return;
+  }
+  closeRealtimeTunnel(requestId, { notifyRelay: false });
+  const socket = new WebSocket(buildLocalRealtimeWsUrl(token));
+  realtimeTunnels.set(requestId, { socket, toRelaySequence: 0, fromRelaySequence: 0 });
+  socket.on('message', (raw, isBinary) => {
+    forwardRealtimeLocalFrame(requestId, raw, isBinary).catch((error) => {
+      closeRealtimeTunnel(requestId, { code: 1011, reason: error.message, notifyRelay: true });
+    });
+  });
+  socket.on('close', (code, reason) => {
+    closeRealtimeTunnel(requestId, { code: code || 1000, reason: reason?.toString() || 'local_realtime_closed' });
+  });
+  socket.on('unexpected-response', () => {
+    sendRealtimeError(requestId, Object.assign(new Error('local_realtime_rejected'), { code: 1011 }));
+    closeRealtimeTunnel(requestId, { code: 1011, reason: 'local_realtime_rejected', notifyRelay: false });
+  });
+  socket.on('error', (error) => {
+    sendRealtimeError(requestId, error);
+    closeRealtimeTunnel(requestId, { code: 1011, reason: 'local_realtime_error', notifyRelay: false });
+  });
+}
+
+async function handleRealtimeFrame(message) {
+  const tunnel = realtimeTunnels.get(message.requestId);
+  if (!tunnel || tunnel.socket.readyState !== tunnel.socket.OPEN) {
+    sendRealtimeError(message.requestId, new Error('relay_realtime_socket_missing'));
+    return;
+  }
+  const expectedSequence = tunnel.fromRelaySequence + 1;
+  const bytes = Buffer.from(message.data || '', message.encoding === 'base64' ? 'base64' : 'utf8');
+  if (Number(message.sequence) !== expectedSequence || Number(message.bytes) !== bytes.length) {
+    closeRealtimeTunnel(message.requestId, { code: 1011, reason: 'relay_realtime_frame_invalid' });
+    return;
+  }
+  await waitForSocketBackpressure(tunnel.socket);
+  tunnel.fromRelaySequence = expectedSequence;
+  tunnel.socket.send(message.encoding === 'base64' ? bytes : bytes.toString('utf8'), {
+    binary: message.encoding === 'base64'
+  });
+}
+
+function handleRealtimeClose(message) {
+  closeRealtimeTunnel(message.requestId, {
+    code: message.code || 1000,
+    reason: message.reason || 'relay_realtime_closed',
+    notifyRelay: false
+  });
+}
+
 function handleMessage(raw) {
   const message = safeJsonParse(raw.toString());
   if (!message?.type) {
@@ -622,6 +749,21 @@ function dispatchRelayMessage(message) {
   if (message.type === 'http.request.error') {
     noteRelayActive();
     handleHttpRequestError(message);
+    return;
+  }
+  if (message.type === 'realtime.open') {
+    noteRelayActive();
+    handleRealtimeOpen(message);
+    return;
+  }
+  if (message.type === 'realtime.frame') {
+    noteRelayActive();
+    handleRealtimeFrame(message).catch((error) => sendRealtimeError(message.requestId, error));
+    return;
+  }
+  if (message.type === 'realtime.close') {
+    noteRelayActive();
+    handleRealtimeClose(message);
   }
 }
 
@@ -650,7 +792,7 @@ function connect() {
       startedAt: new Date().toISOString(),
       clientVersion: '0.1.0',
       localStatus,
-      capabilities: ['http', 'events']
+      capabilities: ['http', 'events', 'realtime']
     }));
     scheduleHeartbeat();
   });
@@ -659,6 +801,7 @@ function connect() {
     clearTimeout(heartbeatTimer);
     clearTimeout(reconnectStableTimer);
     closeLocalEventSocket();
+    closeRealtimeTunnels();
     logState('reconnecting', `${code}:${reason || ''}`);
     if (!closing) {
       if (shouldResetReconnectDelay(Date.now() - onlineSinceMs)) {

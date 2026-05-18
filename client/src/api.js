@@ -8,7 +8,8 @@ const ERROR_MESSAGES = {
   mac_reconnected: 'Mac 连接已刷新，请重试。',
   relay_body_too_large: '当前中转模式不支持这么大的内容。',
   relay_streaming_required: '此能力需要本地直连或后续流式中转支持。',
-  relay_realtime_unsupported: '实时语音暂不支持中转模式。',
+  relay_realtime_unsupported: '实时语音中转不可用。',
+  relay_realtime_http_upgrade_required: '实时语音需要 WebSocket 连接。',
   relay_rate_limited: '请求过快，请稍后再试。',
   relay_unsupported: '此回调路径暂不支持中转模式。'
 };

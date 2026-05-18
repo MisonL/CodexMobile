@@ -21,7 +21,7 @@ test('verifySpace performs public read-only checks without a browser token', asy
     assert.equal(report.ok, true);
     assert.equal(statusFor(report, 'pwa'), 'passed');
     assert.equal(statusFor(report, 'status'), 'passed');
-    assert.equal(statusFor(report, 'realtimeUnsupported'), 'passed');
+    assert.equal(statusFor(report, 'realtimeHttpFallback'), 'passed');
     assert.equal(statusFor(report, 'unauthenticatedProjects'), 'passed');
     assert.equal(statusFor(report, 'authenticatedProjects'), 'skipped');
   } finally {
@@ -91,7 +91,7 @@ function startSpaceFixture({ fallbackPwa = false, authenticated = false } = {}) 
       return;
     }
     if (req.url === '/ws/realtime') {
-      sendJson(res, 501, { error: 'relay_realtime_unsupported' });
+      sendJson(res, 501, { error: 'relay_realtime_http_upgrade_required' });
       return;
     }
     if (req.url === '/api/projects') {

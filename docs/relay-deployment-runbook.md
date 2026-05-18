@@ -129,7 +129,7 @@ npm run space:verify -- --url https://<space>.hf.space --pair-code <pairing-code
 npm run space:verify -- --url https://<space>.hf.space --token <browser-device-token> --chat-message "CodexMobile relay verification" --require-mac
 ```
 
-`space:verify` 不需要 relay secret，不会输出浏览器 token。默认只做 `/`、`/api/status`、`/ws/realtime` 和未认证 `/api/projects` 的只读检查；提供 token 或 pair code 后才验证 `/api/projects` 与 `/ws`。
+`space:verify` 不需要 relay secret，不会输出浏览器 token。默认只做 `/`、`/api/status`、`/ws/realtime` 的 HTTP fallback 和未认证 `/api/projects` 的只读检查；提供 token 或 pair code 后才验证 `/api/projects` 与 `/ws`。
 
 Space variables：
 
@@ -255,7 +255,7 @@ Relay secret grace-window 轮换：
 | `mac_local_offline` | Mac 本地 `http://127.0.0.1:3321/api/status` 是否可访问。 |
 | 配对失败 | Mac 本地服务打印的配对码是否正确，浏览器是否访问 Space URL 而不是旧本地 URL。 |
 | `/ws` 401 | 浏览器 token 未配对或 Space 重启后 Mac 无法复验 token。 |
-| `/ws/realtime` 501 | Phase 1 预期行为，实时语音仍需本地直连。 |
+| `/ws/realtime` WebSocket 失败 | 检查 connector 是否为最新代码，确认 relay smoke 中 realtime tunnel 用例通过。 |
 | 上传或语音转写失败 | 检查 connector 是否为最新代码，确认 relay smoke 中 request streaming 用例通过。 |
 | 生成图片失败 | 检查 connector 是否为最新代码，确认 relay smoke 中 generated asset response streaming 用例通过。 |
 | 语音朗读失败 | 检查 connector 是否为最新代码，确认 relay smoke 中 speech audio response streaming 用例通过。 |

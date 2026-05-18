@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import {
+  DEFAULT_RELAY_WS_BUFFERED_BYTES,
   RELAY_PROTOCOL_VERSION,
   createRequestId,
   jsonMessage,
@@ -21,6 +22,7 @@ export function createRelayRuntime({
 }) {
   const browserSockets = new Set();
   const pendingRequests = new Map();
+  const realtimeSockets = new Map();
   const validTokenCache = new Map();
   const metrics = {
     relayRequestsTotal: 0,
@@ -33,7 +35,9 @@ export function createRelayRuntime({
     macConnectsTotal: 0,
     macDisconnectsTotal: 0,
     macHeartbeatMissesTotal: 0,
-    multiMacRejectedTotal: 0
+    multiMacRejectedTotal: 0,
+    realtimeTunnelsTotal: 0,
+    realtimeTunnelsClosedTotal: 0
   };
 
   let macSocket = null;
@@ -104,6 +108,7 @@ export function createRelayRuntime({
       metrics: {
         ...metrics,
         browserSocketsCurrent: browserSockets.size,
+        realtimeSocketsCurrent: realtimeSockets.size,
         pendingRequestsCurrent: pendingRequests.size
       }
     };
@@ -126,6 +131,14 @@ export function createRelayRuntime({
       clearTimeout(pending.timer);
       deletePendingRequest(requestId);
       pending.reject(Object.assign(new Error(error), { status }));
+    }
+  }
+
+  function closeRealtimeForEpoch(epoch, reason) {
+    for (const session of realtimeSockets.values()) {
+      if (session.epoch === epoch) {
+        closeRealtimeSession(session, { code: 1011, reason, notifyMac: false });
+      }
     }
   }
 
@@ -186,6 +199,7 @@ export function createRelayRuntime({
     }
     metrics.macDisconnectsTotal += 1;
     failPendingForEpoch(oldEpoch, 502, 'mac_offline');
+    closeRealtimeForEpoch(oldEpoch, 'mac_offline');
     broadcast({ type: 'relay-status', ...currentRelayStatus(true) });
     clearTimeout(heartbeatTimer);
     heartbeatTimer = null;
@@ -238,6 +252,7 @@ export function createRelayRuntime({
       }
       const oldEpoch = macConnectionEpoch;
       failPendingForEpoch(oldEpoch, 502, 'mac_reconnected');
+      closeRealtimeForEpoch(oldEpoch, 'mac_reconnected');
       try {
         macSocket.close(4000, 'mac_reconnected');
       } catch {
@@ -364,6 +379,98 @@ export function createRelayRuntime({
     return macSocket?.bufferedAmount || 0;
   }
 
+  function sendRealtimeMacFrame(session, patch) {
+    if (!realtimeSockets.has(session.requestId)) {
+      return false;
+    }
+    if (!macSocket || macSocket.readyState !== macSocket.OPEN || session.epoch !== macConnectionEpoch) {
+      closeRealtimeSession(session, { code: 1011, reason: 'mac_offline', notifyMac: false });
+      return false;
+    }
+    if ((macSocket.bufferedAmount || 0) > DEFAULT_RELAY_WS_BUFFERED_BYTES) {
+      closeRealtimeSession(session, { code: 1011, reason: 'relay_realtime_backpressure', notifyMac: true });
+      return false;
+    }
+    return sendWsJson(macSocket, {
+      ...patch,
+      requestId: session.requestId,
+      macConnectionEpoch: session.epoch
+    });
+  }
+
+  function closeRealtimeSession(session, { code = 1000, reason = 'relay_realtime_closed', notifyMac = true } = {}) {
+    if (!realtimeSockets.delete(session.requestId)) {
+      return;
+    }
+    metrics.realtimeTunnelsClosedTotal += 1;
+    if (notifyMac && macSocket?.readyState === macSocket.OPEN && session.epoch === macConnectionEpoch) {
+      sendWsJson(macSocket, {
+        type: 'realtime.close',
+        requestId: session.requestId,
+        macConnectionEpoch: session.epoch,
+        code,
+        reason
+      });
+    }
+    if ([session.browserWs.OPEN, session.browserWs.CONNECTING].includes(session.browserWs.readyState)) {
+      session.browserWs.close(code, reason);
+    }
+    scheduleHeartbeat();
+  }
+
+  function forwardRealtimeBrowserFrame(session, raw, isBinary) {
+    if (!realtimeSockets.has(session.requestId)) {
+      return;
+    }
+    const bytes = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+    session.toMacSequence += 1;
+    const sent = sendRealtimeMacFrame(session, {
+      type: 'realtime.frame',
+      sequence: session.toMacSequence,
+      encoding: isBinary ? 'base64' : 'text',
+      data: isBinary ? bytes.toString('base64') : bytes.toString('utf8'),
+      bytes: bytes.length
+    });
+    if (!sent) {
+      closeRealtimeSession(session, { code: 1011, reason: 'mac_offline', notifyMac: false });
+    }
+  }
+
+  function handleRealtimeMacFrame(session, payload) {
+    const expectedSequence = session.toBrowserSequence + 1;
+    const bytes = Buffer.from(payload.data || '', payload.encoding === 'base64' ? 'base64' : 'utf8');
+    if (Number(payload.sequence) !== expectedSequence || Number(payload.bytes) !== bytes.length) {
+      closeRealtimeSession(session, { code: 1011, reason: 'relay_realtime_frame_invalid', notifyMac: true });
+      return;
+    }
+    if ((session.browserWs.bufferedAmount || 0) > DEFAULT_RELAY_WS_BUFFERED_BYTES) {
+      closeRealtimeSession(session, { code: 1011, reason: 'relay_realtime_backpressure', notifyMac: true });
+      return;
+    }
+    session.toBrowserSequence = expectedSequence;
+    if (session.browserWs.readyState === session.browserWs.OPEN) {
+      session.browserWs.send(payload.encoding === 'base64' ? bytes : bytes.toString('utf8'), {
+        binary: payload.encoding === 'base64'
+      });
+    }
+  }
+
+  function handleRealtimeMacPayload(payload) {
+    const session = realtimeSockets.get(payload.requestId);
+    if (!session || (payload.macConnectionEpoch && payload.macConnectionEpoch !== session.epoch)) {
+      return;
+    }
+    if (payload.type === 'realtime.frame') {
+      handleRealtimeMacFrame(session, payload);
+      return;
+    }
+    closeRealtimeSession(session, {
+      code: payload.code || 1011,
+      reason: payload.reason || payload.error || 'relay_realtime_closed',
+      notifyMac: false
+    });
+  }
+
   async function validateBrowserToken(token) {
     if (!token) {
       return false;
@@ -485,6 +592,10 @@ export function createRelayRuntime({
       }
       return;
     }
+    if (['realtime.frame', 'realtime.close', 'realtime.error'].includes(payload.type)) {
+      handleRealtimeMacPayload(payload);
+      return;
+    }
     if (['http.response', 'http.error', 'auth.validate.result'].includes(payload.type)) {
       handleResponsePayload(payload);
     }
@@ -518,6 +629,48 @@ export function createRelayRuntime({
     sendWsJson(ws, { type: 'connected', status: currentRelayStatus(true) });
   }
 
+  function acceptRealtimeSocket(ws, token) {
+    const requestId = createRequestId();
+    const session = {
+      requestId,
+      browserWs: ws,
+      epoch: macConnectionEpoch,
+      toMacSequence: 0,
+      toBrowserSequence: 0
+    };
+    try {
+      assertMacAvailable({ type: 'realtime.open' }, `browser:${tokenCacheKey(token)}`);
+    } catch (error) {
+      ws.send(JSON.stringify({ type: 'voice.realtime.error', error: error.message || 'mac_offline' }));
+      ws.close(1011, error.message || 'mac_offline');
+      return;
+    }
+    realtimeSockets.set(requestId, session);
+    metrics.realtimeTunnelsTotal += 1;
+    scheduleHeartbeat();
+    const opened = sendRealtimeMacFrame(session, {
+      type: 'realtime.open',
+      path: `/ws/realtime?token=${encodeURIComponent(token)}`,
+      token
+    });
+    if (!opened) {
+      closeRealtimeSession(session, { code: 1011, reason: 'mac_offline', notifyMac: false });
+      return;
+    }
+    ws.on('message', (raw, isBinary) => forwardRealtimeBrowserFrame(session, raw, isBinary));
+    ws.on('close', (code, reason) => {
+      closeRealtimeSession(session, {
+        code: code || 1000,
+        reason: reason?.toString() || 'browser_closed',
+        notifyMac: true
+      });
+    });
+    ws.on('error', () => {
+      closeRealtimeSession(session, { code: 1011, reason: 'browser_error', notifyMac: true });
+    });
+    logRelayEvent('realtime.tunnel.opened', { requestId, macConnectionEpoch });
+  }
+
   return {
     relaySecret,
     isValidRelaySecret,
@@ -531,6 +684,7 @@ export function createRelayRuntime({
     macBufferedAmount,
     validateBrowserToken,
     acceptMacSocket,
-    acceptBrowserSocket
+    acceptBrowserSocket,
+    acceptRealtimeSocket
   };
 }

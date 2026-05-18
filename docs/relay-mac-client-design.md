@@ -329,7 +329,7 @@ HTTP 状态码为 `503`。
 
 这些路由规则只适用于从 Space relay 进入的请求。直接发往 Mac 本地服务的请求继续使用现有 `server/index.js` handler。
 
-`/ws/realtime` 属于 Phase 2，除非已实现带 backpressure 的全双工 tunnel。Phase 1 必须显式失败并返回 `501 relay_realtime_unsupported`，不得挂起或静默降级。
+`/ws/realtime` 使用 realtime tunnel 帧转发到 Mac 本地 `/ws/realtime`。Connector 只做传输适配和背压保护，不复制实时语音 provider 业务逻辑。
 
 ## 9. 本地执行策略
 
