@@ -10,6 +10,8 @@
   - `6ab8450 fix: broadcast initial sync after startup`
   - `d596285 docs: record relay space deployment blocker`
   - `36b7198 chore: add HuggingFace Space prepare script`
+  - `9f0235c test: add relay browser fixture coverage`
+  - `72cfe04 chore: add HuggingFace Space deploy helper`
 - Pull request: `https://github.com/RNG2018-mlxg/CodexMobile/pull/4`
 - Space URL: not available
 - Mac local URL: `http://127.0.0.1:3321`
@@ -62,6 +64,22 @@ Deployment package constraints:
 - `CODEXMOBILE_RELAY_SECRET` is documented only as a Space secret placeholder.
 - The generated package includes `Dockerfile`, `package*.json`, `client/`, `server/`, and relay-required scripts.
 - The generated package excludes local state, dependencies, logs, runtime output, and credentials.
+
+## Phase 1 门禁矩阵
+
+| Gate | Evidence | Status |
+| --- | --- | --- |
+| Phase 1A build | `npm run build` | Passed |
+| Phase 1A local direct smoke | `CODEXMOBILE_URL=http://127.0.0.1:3321/api/status npm run smoke` | Passed |
+| Phase 1A relay protocol smoke | `npm run smoke:relay` | Passed |
+| Frontend relay UX | in-app Browser fixture: ready, `mac_offline`, `relay_rate_limited` | Passed |
+| Connector reconnect policy | `npm run smoke:relay` covers active/idle cap, stable reset, reconnect epoch failure | Passed |
+| Docker Space package | `npm run space:prepare`; `dist/hf-space` generated without secrets | Passed |
+| Space git deploy path | `npm run space:deploy -- --remote .codexmobile/hf-space-bare.git` | Passed with local bare remote |
+| Phase 1B real Space deploy | Create/update HuggingFace Docker Space | Blocked: no HuggingFace credentials or target Space |
+| Phase 1B public mobile flow | Space URL PWA load, pair, `/api/projects`, `/api/chat/send`, `/ws` | Blocked: no public Space URL or relay secret |
+| Phase 1B recovery checks | stop connector, stop local server, restart Space | Blocked: requires real Space runtime |
+| Phase 1B log inspection | Space and Mac logs contain no secret/token/body/path leakage | Blocked: requires real Space runtime |
 
 ## HuggingFace Space 试运行状态
 
