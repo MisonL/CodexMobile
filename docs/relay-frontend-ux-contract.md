@@ -44,11 +44,14 @@ Relay Phase 1 允许：
 - 普通 `/ws` 事件。
 - 显式小体积 JSON / text API。
 
+Relay request streaming 已允许：
+
+- `/api/uploads` 上传文件。
+- `/api/voice/transcribe` 语音转写上传。
+
 Relay Phase 1 禁用或提示不支持：
 
 - `/ws/realtime` 实时语音。
-- 上传文件。
-- 语音转写上传。
 - 语音朗读音频流。
 - 生成图片二进制读取。
 - 大响应下载。
@@ -89,4 +92,4 @@ Relay Phase 1 禁用或提示不支持：
 
 - mock `/api/status` 为每个 relay state，截图确认顶栏、按钮和提示。
 - mock `/api/chat/send` 返回 `503 mac_offline`，确认输入不丢失。
-- mock `/api/uploads` 返回 `501 relay_streaming_required`，确认显示 unsupported 文案。
+- mock `/ws/realtime` 返回 `501 relay_realtime_unsupported`，确认显示 unsupported 文案。

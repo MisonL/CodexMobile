@@ -132,15 +132,17 @@ Space 中转服务对已认证 API 请求使用 default-forward 策略。
 
 中转服务不得把大型请求体或响应体作为单个 JSON base64 消息发送。
 
-### 6.1 Phase 1 二进制策略
+### 6.1 二进制策略
 
-Phase 1 只允许对小体积请求使用 buffered JSON/text 转发。
+Relay 对小体积 JSON/text 请求继续使用 buffered 转发。`/api/uploads` 和 `/api/voice/transcribe` 使用 chunked request streaming 转发到 Mac connector，避免 Space 缓冲完整 multipart body。
 
 限制：
 
 - JSON 请求体：2 MB。
 - 小型二进制 base64 body：解码后 2 MB。
-- 更大的 upload、voice、generated-image、speech-audio 路径在 chunked streaming 实现前必须明确返回 `413 relay_body_too_large` 或 `501 relay_streaming_required`。
+- `/api/uploads` request stream：50 MB。
+- `/api/voice/transcribe` request stream：10 MB。
+- generated-image、speech-audio 和大型响应路径在 response streaming 实现前必须明确返回 `413 relay_body_too_large` 或 `501 relay_streaming_required`。
 
 这可以在验证基础中转链路时避免内存和事件循环风险。
 
@@ -368,7 +370,8 @@ relay 模式下 `GET /api/status` 返回安全字段：
 必须通过：
 
 - `/api/uploads` 支持 chunked relay 或显式有界失败。
-- `/api/voice/transcribe` 与 `/api/voice/speech` 支持有界二进制流。
+- `/api/voice/transcribe` 支持有界 request streaming。
+- `/api/voice/speech` 支持有界二进制流。
 - `/generated/*` 使用 chunked relay 转发到 Mac，要求鉴权，并且不在 Space 持久化。
 - 超限 body 返回 `413`。
 - 断线释放 pending stream 状态。

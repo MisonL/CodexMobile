@@ -139,6 +139,21 @@ export function createRelayRuntime({
     return Object.assign(new Error(error), { status: 429 });
   }
 
+  function assertMacAvailable(envelope, clientKey = '') {
+    if (!macSocket || macSocket.readyState !== macSocket.OPEN) {
+      throw Object.assign(new Error('mac_offline'), { status: 503 });
+    }
+    if (macInfo?.localStatus?.reachable === false && envelope.type !== 'auth.validate') {
+      throw Object.assign(new Error('mac_local_offline'), { status: 503 });
+    }
+    if (pendingRequests.size >= pendingRequestsMax) {
+      throw pendingLimitError('relay_pending_limit_exceeded');
+    }
+    if (clientKey && pendingCountForClient(clientKey) >= browserPendingRequestsMax) {
+      throw pendingLimitError('relay_client_pending_limit_exceeded');
+    }
+  }
+
   function heartbeatInterval() {
     return browserSockets.size > 0 || pendingRequests.size > 0 ? heartbeatMs : idleHeartbeatMs;
   }
@@ -233,36 +248,84 @@ export function createRelayRuntime({
     });
   }
 
-  function requestMac(envelope, timeoutMs = requestTimeoutMs, { clientKey = '' } = {}) {
-    return new Promise((resolve, reject) => {
-      if (!macSocket || macSocket.readyState !== macSocket.OPEN) {
-        reject(Object.assign(new Error('mac_offline'), { status: 503 }));
-        return;
-      }
-      if (macInfo?.localStatus?.reachable === false && envelope.type !== 'auth.validate') {
-        reject(Object.assign(new Error('mac_local_offline'), { status: 503 }));
-        return;
-      }
-      if (pendingRequests.size >= pendingRequestsMax) {
-        reject(pendingLimitError('relay_pending_limit_exceeded'));
-        return;
-      }
-      if (clientKey && pendingCountForClient(clientKey) >= browserPendingRequestsMax) {
-        reject(pendingLimitError('relay_client_pending_limit_exceeded'));
-        return;
-      }
-      const requestId = envelope.requestId || createRequestId();
-      const epoch = macConnectionEpoch;
-      const timer = setTimeout(() => {
-        deletePendingRequest(requestId);
-        metrics.relayRequestsTimedOut += 1;
-        reject(Object.assign(new Error('relay_request_timeout'), { status: 502 }));
-      }, timeoutMs);
-
-      pendingRequests.set(requestId, { resolve, reject, timer, epoch, clientKey });
-      scheduleHeartbeat();
-      sendWsJson(macSocket, { ...envelope, requestId, macConnectionEpoch: epoch });
+  function createPendingMacRequest(envelope, timeoutMs = requestTimeoutMs, { clientKey = '' } = {}) {
+    assertMacAvailable(envelope, clientKey);
+    const requestId = envelope.requestId || createRequestId();
+    const epoch = macConnectionEpoch;
+    const pending = {
+      resolve: () => {},
+      reject: () => {},
+      timer: null,
+      epoch,
+      clientKey
+    };
+    const response = new Promise((resolve, reject) => {
+      pending.resolve = resolve;
+      pending.reject = reject;
     });
+    pending.timer = setTimeout(() => {
+      deletePendingRequest(requestId);
+      metrics.relayRequestsTimedOut += 1;
+      pending.reject(Object.assign(new Error('relay_request_timeout'), { status: 502 }));
+    }, timeoutMs);
+
+    pendingRequests.set(requestId, pending);
+    scheduleHeartbeat();
+    return { requestId, epoch, response };
+  }
+
+  function requestMac(envelope, timeoutMs = requestTimeoutMs, { clientKey = '' } = {}) {
+    const started = createPendingMacRequest(envelope, timeoutMs, { clientKey });
+    if (!sendWsJson(macSocket, { ...envelope, requestId: started.requestId, macConnectionEpoch: started.epoch })) {
+      failMacRequest(started.requestId, 503, 'mac_offline');
+    }
+    return started.response;
+  }
+
+  function beginMacRequest(envelope, timeoutMs = requestTimeoutMs, { clientKey = '' } = {}) {
+    const started = createPendingMacRequest(envelope, timeoutMs, { clientKey });
+    if (!sendWsJson(macSocket, { ...envelope, requestId: started.requestId, macConnectionEpoch: started.epoch })) {
+      failMacRequest(started.requestId, 503, 'mac_offline');
+      throw Object.assign(new Error('mac_offline'), { status: 503 });
+    }
+    return {
+      requestId: started.requestId,
+      macConnectionEpoch: started.epoch,
+      response: started.response
+    };
+  }
+
+  function sendMacRequestFrame(requestId, frame) {
+    const pending = pendingRequests.get(requestId);
+    if (!pending) {
+      throw Object.assign(new Error('relay_request_missing'), { status: 502 });
+    }
+    if (!macSocket || macSocket.readyState !== macSocket.OPEN || pending.epoch !== macConnectionEpoch) {
+      throw Object.assign(new Error('mac_offline'), { status: 503 });
+    }
+    const sent = sendWsJson(macSocket, {
+      ...frame,
+      requestId,
+      macConnectionEpoch: pending.epoch
+    });
+    if (!sent) {
+      throw Object.assign(new Error('mac_offline'), { status: 503 });
+    }
+    return macSocket.bufferedAmount || 0;
+  }
+
+  function failMacRequest(requestId, status, error) {
+    const pending = pendingRequests.get(requestId);
+    if (!pending) {
+      return;
+    }
+    clearTimeout(pending.timer);
+    deletePendingRequest(requestId);
+    pending.reject(Object.assign(new Error(error), { status }));
+  }
+
+  function macBufferedAmount() {
+    return macSocket?.bufferedAmount || 0;
   }
 
   async function validateBrowserToken(token) {
@@ -374,6 +437,10 @@ export function createRelayRuntime({
     metrics,
     currentRelayStatus,
     requestMac,
+    beginMacRequest,
+    sendMacRequestFrame,
+    failMacRequest,
+    macBufferedAmount,
     validateBrowserToken,
     acceptMacSocket,
     acceptBrowserSocket

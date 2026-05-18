@@ -255,7 +255,8 @@ Phase 1 单 secret 轮换：
 | 配对失败 | Mac 本地服务打印的配对码是否正确，浏览器是否访问 Space URL 而不是旧本地 URL。 |
 | `/ws` 401 | 浏览器 token 未配对或 Space 重启后 Mac 无法复验 token。 |
 | `/ws/realtime` 501 | Phase 1 预期行为，实时语音仍需本地直连。 |
-| 上传、语音或生成图片失败 | Phase 1 预期行为，需等待 Phase 2 streaming。 |
+| 上传或语音转写失败 | 检查 connector 是否为最新代码，确认 relay smoke 中 request streaming 用例通过。 |
+| 生成图片失败 | 当前仍需 response streaming，未实现前会返回显式不支持错误。 |
 
 ## 8. 部署记录模板
 

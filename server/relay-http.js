@@ -2,11 +2,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import {
+  DEFAULT_RELAY_STREAM_CHUNK_BYTES,
+  DEFAULT_RELAY_WS_BUFFERED_BYTES,
   browserTokenFromHeaders,
   createRequestId,
   filterRequestHeaders,
   filterResponseHeaders,
   isRelayUnsupportedPath,
+  isRelayStreamingRequest,
   logRelayEvent,
   safeJsonParse,
   safePathWithQuery
@@ -27,6 +30,10 @@ const mimeTypes = new Map([
   ['.ico', 'image/x-icon']
 ]);
 const compressibleExtensions = new Set(['.html', '.js', '.css', '.json', '.webmanifest', '.svg']);
+const UPLOAD_STREAM_BYTES_MAX = 50 * 1024 * 1024;
+const VOICE_STREAM_BYTES_MAX = 10 * 1024 * 1024;
+const WS_BUFFER_CHECK_INTERVAL_MS = 10;
+const WS_BUFFER_WAIT_TIMEOUT_MS = 30000;
 
 export function sendJson(res, status, payload, headers = {}) {
   const body = Buffer.from(JSON.stringify(payload));
@@ -161,6 +168,26 @@ function encodeRequestBody(buffer, contentType) {
   return { bodyEncoding: 'base64', body: buffer.toString('base64') };
 }
 
+function streamRequestLimit(pathname, fallback) {
+  if (pathname === '/api/uploads') {
+    return UPLOAD_STREAM_BYTES_MAX;
+  }
+  if (pathname === '/api/voice/transcribe') {
+    return VOICE_STREAM_BYTES_MAX;
+  }
+  return fallback;
+}
+
+async function waitForRelayBackpressure(getBufferedAmount, maxBufferedBytes = DEFAULT_RELAY_WS_BUFFERED_BYTES) {
+  const startedAt = Date.now();
+  while (getBufferedAmount() > maxBufferedBytes) {
+    if (Date.now() - startedAt > WS_BUFFER_WAIT_TIMEOUT_MS) {
+      throw Object.assign(new Error('relay_stream_backpressure_timeout'), { status: 502 });
+    }
+    await new Promise((resolve) => setTimeout(resolve, WS_BUFFER_CHECK_INTERVAL_MS));
+  }
+}
+
 function writeForwardedResponse(res, result) {
   const headers = filterResponseHeaders(result.headers || {});
   let body = Buffer.alloc(0);
@@ -249,6 +276,18 @@ export function createRelayHttpHandler({ clientDist, maxBodyBytes, requestTimeou
     const requestId = createRequestId();
     try {
       runtime.metrics.relayRequestsTotal += 1;
+      if (isRelayStreamingRequest(req.method, url.pathname, contentType)) {
+        const result = await streamRequestToMac(req, url, requestId, browserToken);
+        writeForwardedResponse(res, result);
+        logRelayEvent('relay.stream_request.completed', {
+          requestId,
+          method: req.method || 'GET',
+          path: url.pathname,
+          status: result.status || 502,
+          durationMs: Date.now() - startedAt
+        });
+        return;
+      }
       const buffer = await readRequestBody(req, maxBodyBytes);
       const result = await runtime.requestMac({
         type: 'http.request',
@@ -283,6 +322,69 @@ export function createRelayHttpHandler({ clientDist, maxBodyBytes, requestTimeou
         error: message
       }, 'warn');
     }
+  }
+
+  async function streamRequestToMac(req, url, requestId, browserToken) {
+    const totalLimit = streamRequestLimit(url.pathname, maxBodyBytes);
+    const start = await runtime.beginMacRequest({
+      type: 'http.request.start',
+      requestId,
+      method: req.method || 'GET',
+      path: safePathWithQuery(url.pathname, url.search),
+      headers: filterRequestHeaders(req.headers),
+      timeoutMs: requestTimeoutMs,
+      totalBytes: Number(req.headers['content-length']) || 0
+    }, requestTimeoutMs, {
+      clientKey: browserToken ? `browser:${tokenRateLimitKey(browserToken)}` : ''
+    });
+    start.response.catch(() => {});
+    try {
+      const { chunks, totalBytes } = await sendRequestChunksToMac(req, start.requestId, totalLimit);
+      runtime.sendMacRequestFrame(start.requestId, {
+        type: 'http.request.end',
+        chunks,
+        totalBytes
+      });
+      return await start.response;
+    } catch (error) {
+      notifyMacRequestStreamError(start.requestId, error);
+      throw error;
+    }
+  }
+
+  async function sendRequestChunksToMac(req, requestId, totalLimit) {
+    let chunks = 0;
+    let totalBytes = 0;
+    for await (const chunk of req) {
+      totalBytes += chunk.length;
+      if (totalBytes > totalLimit) {
+        throw Object.assign(new Error('relay_body_too_large'), { status: 413 });
+      }
+      for (let offset = 0; offset < chunk.length; offset += DEFAULT_RELAY_STREAM_CHUNK_BYTES) {
+        const slice = chunk.subarray(offset, offset + DEFAULT_RELAY_STREAM_CHUNK_BYTES);
+        chunks += 1;
+        runtime.sendMacRequestFrame(requestId, {
+          type: 'http.request.chunk',
+          sequence: chunks,
+          encoding: 'base64',
+          data: slice.toString('base64'),
+          bytes: slice.length
+        });
+        await waitForRelayBackpressure(runtime.macBufferedAmount);
+      }
+    }
+    return { chunks, totalBytes };
+  }
+
+  function notifyMacRequestStreamError(requestId, error) {
+    try {
+      runtime.sendMacRequestFrame(requestId, {
+        type: 'http.request.error',
+        status: error.status || 502,
+        error: error.message || 'relay_stream_aborted'
+      });
+    } catch {}
+    runtime.failMacRequest(requestId, error.status || 502, error.message || 'relay_stream_aborted');
   }
 
   async function handleApi(req, res, url) {

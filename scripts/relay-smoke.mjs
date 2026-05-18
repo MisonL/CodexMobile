@@ -152,17 +152,23 @@ async function waitForMacConnected() {
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...options,
-    headers: {
-      ...(options.body && !(options.body instanceof Buffer) ? { 'content-type': 'application/json' } : {}),
-      ...(options.headers || {})
-    },
-    body:
-      options.body && !(options.body instanceof Buffer) && typeof options.body !== 'string'
-        ? JSON.stringify(options.body)
-        : options.body
-  });
+  let response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      ...options,
+      signal: options.signal || AbortSignal.timeout(5000),
+      headers: {
+        ...(options.body && !(options.body instanceof Buffer) ? { 'content-type': 'application/json' } : {}),
+        ...(options.headers || {})
+      },
+      body:
+        options.body && !(options.body instanceof Buffer) && typeof options.body !== 'string'
+          ? JSON.stringify(options.body)
+          : options.body
+    });
+  } catch (error) {
+    throw new Error(`request ${path} failed: ${error.message}`);
+  }
   const text = await response.text();
   let data = {};
   try {
@@ -171,6 +177,16 @@ async function request(path, options = {}) {
     data = { text };
   }
   return { response, data };
+}
+
+function multipartBody(boundary, fieldName, filename, contentType, content) {
+  return Buffer.from([
+    `--${boundary}\r\n`,
+    `content-disposition: form-data; name="${fieldName}"; filename="${filename}"\r\n`,
+    `content-type: ${contentType}\r\n\r\n`,
+    content,
+    `\r\n--${boundary}--\r\n`
+  ].join(''));
 }
 
 function startLocalCodexFixture() {
@@ -199,6 +215,33 @@ function startLocalCodexFixture() {
           turnId: 'fixture-turn'
         });
       }, 50);
+      return;
+    }
+    if (url.pathname === '/api/uploads') {
+      const body = await readFixtureBody(req);
+      if (!body.includes('hello-upload')) {
+        sendFixtureJson(res, 400, { error: 'missing_upload_body' });
+        return;
+      }
+      sendFixtureJson(res, 201, {
+        ok: true,
+        kind: 'upload',
+        bytes: body.length,
+        contentType: req.headers['content-type'] || ''
+      });
+      return;
+    }
+    if (url.pathname === '/api/voice/transcribe') {
+      const body = await readFixtureBody(req);
+      if (!body.includes('voice-bytes')) {
+        sendFixtureJson(res, 400, { error: 'missing_voice_body' });
+        return;
+      }
+      sendFixtureJson(res, 200, {
+        text: 'fixture transcript',
+        bytes: body.length,
+        contentType: req.headers['content-type'] || ''
+      });
       return;
     }
     sendFixtureJson(res, 404, { error: 'not_found' });
@@ -232,6 +275,14 @@ function startLocalCodexFixture() {
       });
     });
   });
+}
+
+async function readFixtureBody(req) {
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
 }
 
 function sendFixtureJson(res, status, payload) {
@@ -464,6 +515,42 @@ async function verifyRealConnectorForwardsLocalWsEvents() {
   }
 }
 
+async function verifyRealConnectorStreamsMultipartRequests() {
+  const local = await startLocalCodexFixture();
+  const connector = spawnConnector(local.url);
+  try {
+    await waitForMacConnected();
+    const uploadBoundary = '----codexmobile-upload-boundary';
+    let result = await request('/api/uploads', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer valid-token',
+        'content-type': `multipart/form-data; boundary=${uploadBoundary}`
+      },
+      body: multipartBody(uploadBoundary, 'file', 'hello.txt', 'text/plain', 'hello-upload')
+    });
+    if (result.response.status !== 201 || result.data.kind !== 'upload' || !result.data.contentType.includes(uploadBoundary)) {
+      fail('real connector should stream multipart upload to local fixture', result);
+    }
+
+    const voiceBoundary = '----codexmobile-voice-boundary';
+    result = await request('/api/voice/transcribe', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer valid-token',
+        'content-type': `multipart/form-data; boundary=${voiceBoundary}`
+      },
+      body: multipartBody(voiceBoundary, 'audio', 'voice.wav', 'audio/wav', 'voice-bytes')
+    });
+    if (result.response.status !== 200 || result.data.text !== 'fixture transcript' || !result.data.contentType.includes(voiceBoundary)) {
+      fail('real connector should stream multipart voice transcription to local fixture', result);
+    }
+  } finally {
+    connector.kill('SIGTERM');
+    await local.close();
+  }
+}
+
 async function main() {
   expectInvalidForwardPathRejected();
   verifyRateLimitRetryAfterHelpers();
@@ -485,6 +572,7 @@ async function main() {
     await new Promise((resolve) => setTimeout(resolve, 100));
     await verifyReconnectAndUnsupportedRoutes();
     await verifyRealConnectorForwardsLocalWsEvents();
+    await verifyRealConnectorStreamsMultipartRequests();
     console.log('Relay smoke ok');
   } finally {
     relay.kill('SIGTERM');

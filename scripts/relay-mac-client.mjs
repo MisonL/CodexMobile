@@ -44,6 +44,7 @@ let localStatus = { reachable: false, checkedAt: '' };
 let closing = false;
 let onlineSinceMs = 0;
 let relayActiveUntilMs = 0;
+const requestStreams = new Map();
 
 export function nextReconnectDelay(currentDelayMs, { active = false, idleHeartbeatMs = DEFAULT_RELAY_IDLE_HEARTBEAT_MS } = {}) {
   const capMs = active ? ACTIVE_RECONNECT_CAP_MS : idleHeartbeatMs;
@@ -328,6 +329,141 @@ async function handleHttpRequest(message) {
   }
 }
 
+function createStreamController() {
+  let controller;
+  const stream = new ReadableStream({
+    start(nextController) {
+      controller = nextController;
+    }
+  });
+  return { stream, controller };
+}
+
+function closeRequestStream(requestId, error) {
+  const entry = requestStreams.get(requestId);
+  if (!entry) {
+    return;
+  }
+  requestStreams.delete(requestId);
+  try {
+    if (error) {
+      entry.controller.error(error);
+    } else {
+      entry.controller.close();
+    }
+  } catch {}
+}
+
+async function handleHttpRequestStart(message) {
+  const requestId = message.requestId;
+  const { stream, controller } = createStreamController();
+  requestStreams.set(requestId, { controller, sequence: 0 });
+  if (!localStatus.reachable) {
+    await checkLocalStatus();
+  }
+  if (!localStatus.reachable) {
+    closeRequestStream(requestId, new Error('mac_local_offline'));
+    sendWsJson(ws, {
+      type: 'http.error',
+      requestId,
+      macConnectionEpoch: relayEpoch,
+      status: 503,
+      error: 'mac_local_offline'
+    });
+    return;
+  }
+  try {
+    const browserToken = browserTokenFromHeaders(message.headers || {});
+    if (browserToken) {
+      await ensureLocalEventSocket(browserToken);
+    }
+    forwardStreamRequest(message, stream);
+  } catch (error) {
+    closeRequestStream(requestId, error);
+    sendStreamError(requestId, error);
+  }
+}
+
+function forwardStreamRequest(message, stream) {
+  fetch(buildLocalUrl(message.path), {
+    method: message.method || 'POST',
+    headers: filterRequestHeaders(message.headers || {}),
+    body: stream,
+    duplex: 'half',
+    signal: AbortSignal.timeout(message.timeoutMs || REQUEST_TIMEOUT_MS)
+  })
+    .then((response) => sendStreamResponse(message.requestId, response))
+    .catch((error) => sendStreamError(message.requestId, error))
+    .finally(() => requestStreams.delete(message.requestId));
+}
+
+function sendStreamError(requestId, error) {
+  sendWsJson(ws, {
+    type: 'http.error',
+    requestId,
+    macConnectionEpoch: relayEpoch,
+    status: error?.status || 502,
+    error: error?.name === 'TimeoutError' ? 'relay_request_timeout' : error?.message || 'local_request_failed'
+  });
+}
+
+function handleHttpRequestChunk(message) {
+  const entry = requestStreams.get(message.requestId);
+  if (!entry) {
+    sendStreamError(message.requestId, Object.assign(new Error('relay_stream_missing'), { status: 502 }));
+    return;
+  }
+  try {
+    const chunk = message.encoding === 'base64'
+      ? Buffer.from(message.data || '', 'base64')
+      : Buffer.from(String(message.data || ''));
+    const expectedSequence = entry.sequence + 1;
+    if (Number(message.sequence) !== expectedSequence) {
+      throw Object.assign(new Error('relay_stream_sequence_mismatch'), { status: 502 });
+    }
+    if (Number(message.bytes) !== chunk.length) {
+      throw Object.assign(new Error('relay_stream_chunk_size_mismatch'), { status: 502 });
+    }
+    entry.sequence = expectedSequence;
+    entry.controller.enqueue(chunk);
+  } catch (error) {
+    closeRequestStream(message.requestId, error);
+    sendStreamError(message.requestId, error);
+  }
+}
+
+function handleHttpRequestEnd(message) {
+  if (!requestStreams.has(message.requestId)) {
+    sendStreamError(message.requestId, Object.assign(new Error('relay_stream_missing'), { status: 502 }));
+    return;
+  }
+  closeRequestStream(message.requestId);
+}
+
+function handleHttpRequestError(message) {
+  closeRequestStream(message.requestId, new Error(message.error || 'relay_stream_aborted'));
+}
+
+async function sendStreamResponse(requestId, response) {
+  const encoded = await encodeResponseBody(response);
+  if (encoded.type === 'http.error') {
+    sendWsJson(ws, {
+      ...encoded,
+      requestId,
+      macConnectionEpoch: relayEpoch
+    });
+    return;
+  }
+  sendWsJson(ws, {
+    type: 'http.response',
+    requestId,
+    macConnectionEpoch: relayEpoch,
+    status: response.status,
+    headers: filterResponseHeaders(response.headers),
+    ...encoded
+  });
+}
+
 function handleMessage(raw) {
   const message = safeJsonParse(raw.toString());
   if (!message?.type) {
@@ -360,6 +496,26 @@ function handleMessage(raw) {
   if (message.type === 'http.request') {
     noteRelayActive();
     handleHttpRequest(message);
+    return;
+  }
+  if (message.type === 'http.request.start') {
+    noteRelayActive();
+    handleHttpRequestStart(message);
+    return;
+  }
+  if (message.type === 'http.request.chunk') {
+    noteRelayActive();
+    handleHttpRequestChunk(message);
+    return;
+  }
+  if (message.type === 'http.request.end') {
+    noteRelayActive();
+    handleHttpRequestEnd(message);
+    return;
+  }
+  if (message.type === 'http.request.error') {
+    noteRelayActive();
+    handleHttpRequestError(message);
   }
 }
 

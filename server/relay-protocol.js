@@ -5,6 +5,8 @@ export const DEFAULT_RELAY_REQUEST_TIMEOUT_MS = 120000;
 export const DEFAULT_RELAY_HEARTBEAT_MS = 15000;
 export const DEFAULT_RELAY_IDLE_HEARTBEAT_MS = 300000;
 export const DEFAULT_RELAY_SMALL_BODY_LIMIT = 2 * 1024 * 1024;
+export const DEFAULT_RELAY_STREAM_CHUNK_BYTES = 256 * 1024;
+export const DEFAULT_RELAY_WS_BUFFERED_BYTES = 4 * 1024 * 1024;
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
@@ -97,16 +99,22 @@ export function isRelayUnsupportedPath(pathname, contentType = '') {
   if (path === '/ws/realtime') {
     return 'relay_realtime_unsupported';
   }
-  if (path.startsWith('/api/voice/') || path === '/api/uploads') {
-    return 'relay_streaming_required';
-  }
   if (path.startsWith('/generated/')) {
     return 'relay_streaming_required';
   }
-  if (/multipart\/form-data|audio\/|image\//i.test(String(contentType || ''))) {
-    return 'relay_streaming_required';
-  }
   return '';
+}
+
+export function isRelayStreamingRequest(method, pathname, contentType = '') {
+  const normalizedMethod = String(method || 'GET').toUpperCase();
+  if (['GET', 'HEAD'].includes(normalizedMethod)) {
+    return false;
+  }
+  const path = String(pathname || '');
+  if (path === '/api/uploads' || path === '/api/voice/transcribe') {
+    return true;
+  }
+  return /multipart\/form-data|audio\/|image\//i.test(String(contentType || ''));
 }
 
 export function filterRequestHeaders(headers = {}) {
