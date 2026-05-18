@@ -11,6 +11,7 @@ import {
   filterResponseHeaders,
   isRelayUnsupportedPath,
   isRelayStreamingRequest,
+  isRelayStreamingResponseRequest,
   logRelayEvent,
   safeJsonParse,
   safePathWithQuery
@@ -291,6 +292,15 @@ export function createRelayHttpHandler({ clientDist, maxBodyBytes, requestTimeou
         return;
       }
       const buffer = await readRequestBody(req, maxBodyBytes);
+      if (isRelayStreamingResponseRequest(req.method, url.pathname)) {
+        await streamResponseFromMac(req, res, url, browserToken, {
+          requestId,
+          startedAt,
+          countMetric: false,
+          ...encodeRequestBody(buffer, contentType)
+        });
+        return;
+      }
       const result = await runtime.requestMac({
         type: 'http.request',
         requestId,
@@ -362,19 +372,23 @@ export function createRelayHttpHandler({ clientDist, maxBodyBytes, requestTimeou
     }
   }
 
-  async function streamResponseFromMac(req, res, url, browserToken) {
-    const startedAt = Date.now();
-    const requestId = createRequestId();
+  async function streamResponseFromMac(req, res, url, browserToken, options = {}) {
+    const startedAt = options.startedAt || Date.now();
+    const requestId = options.requestId || createRequestId();
     let streamErrorHandled = false;
     try {
-      runtime.metrics.relayRequestsTotal += 1;
+      if (options.countMetric !== false) {
+        runtime.metrics.relayRequestsTotal += 1;
+      }
       await runtime.requestMacStream({
         type: 'http.stream.request',
         requestId,
         method: req.method || 'GET',
         path: safePathWithQuery(url.pathname, url.search),
         headers: filterRequestHeaders(req.headers),
-        timeoutMs: requestTimeoutMs
+        timeoutMs: requestTimeoutMs,
+        bodyEncoding: options.bodyEncoding || 'text',
+        body: options.body || ''
       }, {
         onStart: (payload) => writeStreamResponseStart(res, payload),
         onChunk: (chunk) => writeResponseChunk(res, chunk),
@@ -393,22 +407,26 @@ export function createRelayHttpHandler({ clientDist, maxBodyBytes, requestTimeou
         durationMs: Date.now() - startedAt
       });
     } catch (error) {
-      runtime.metrics.relayRequestsFailed += 1;
-      if (!streamErrorHandled) {
-        writeStreamResponseError(res, {
-          status: error.status || 502,
-          error: error.message || 'relay_stream_failed'
-        });
-      }
-      logRelayEvent('relay.stream_response.failed', {
-        requestId,
-        method: req.method || 'GET',
-        path: url.pathname,
-        status: error.status || 502,
-        durationMs: Date.now() - startedAt,
-        error: error.message || 'relay_stream_failed'
-      }, 'warn');
+      handleStreamResponseFailure({ req, res, url, requestId, startedAt, error, streamErrorHandled });
     }
+  }
+
+  function handleStreamResponseFailure({ req, res, url, requestId, startedAt, error, streamErrorHandled }) {
+    runtime.metrics.relayRequestsFailed += 1;
+    if (!streamErrorHandled) {
+      writeStreamResponseError(res, {
+        status: error.status || 502,
+        error: error.message || 'relay_stream_failed'
+      });
+    }
+    logRelayEvent('relay.stream_response.failed', {
+      requestId,
+      method: req.method || 'GET',
+      path: url.pathname,
+      status: error.status || 502,
+      durationMs: Date.now() - startedAt,
+      error: error.message || 'relay_stream_failed'
+    }, 'warn');
   }
 
   function writeStreamResponseStart(res, payload) {

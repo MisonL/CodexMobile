@@ -26,6 +26,7 @@ const relayUrl = `ws://127.0.0.1:${port}/relay/mac`;
 const localFixturePort = Number(process.env.CODEXMOBILE_RELAY_LOCAL_FIXTURE_PORT || 9788);
 const rootDir = fileURLToPath(new URL('..', import.meta.url));
 const generatedFixtureBytes = Buffer.alloc(2 * 1024 * 1024 + 17, 7);
+const speechFixtureBytes = Buffer.alloc(2 * 1024 * 1024 + 31, 9);
 
 function fail(message, detail) {
   console.error(`Relay smoke failed: ${message}`);
@@ -261,6 +262,10 @@ async function handleFixtureHttp(req, res, url, browserSockets) {
     await sendFixtureVoice(req, res);
     return;
   }
+  if (url.pathname === '/api/voice/speech') {
+    await sendFixtureSpeech(req, res);
+    return;
+  }
   if (url.pathname === '/generated/test.png') {
     sendFixtureGenerated(res);
     return;
@@ -317,6 +322,20 @@ async function sendFixtureVoice(req, res) {
     bytes: body.length,
     contentType: req.headers['content-type'] || ''
   });
+}
+
+async function sendFixtureSpeech(req, res) {
+  const body = JSON.parse(await readFixtureBody(req));
+  if (body.text !== 'fixture speech') {
+    sendFixtureJson(res, 400, { error: 'missing_speech_text' });
+    return;
+  }
+  res.writeHead(200, {
+    'content-type': 'audio/mpeg',
+    'content-length': speechFixtureBytes.length,
+    'cache-control': 'no-store'
+  });
+  res.end(speechFixtureBytes);
 }
 
 function sendFixtureGenerated(res) {
@@ -627,6 +646,36 @@ async function verifyRealConnectorStreamsGeneratedAssets() {
   }
 }
 
+async function verifyRealConnectorStreamsSpeechAudio() {
+  const local = await startLocalCodexFixture();
+  const connector = spawnConnector(local.url);
+  try {
+    await waitForMacConnected();
+    const result = await requestBuffer('/api/voice/speech', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer valid-token',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({ text: 'fixture speech' })
+    });
+    if (
+      result.response.status !== 200 ||
+      result.response.headers.get('content-type') !== 'audio/mpeg' ||
+      !result.body.equals(speechFixtureBytes)
+    ) {
+      fail('real connector should stream speech audio bytes to browser', {
+        status: result.response.status,
+        contentType: result.response.headers.get('content-type'),
+        bytes: result.body.length
+      });
+    }
+  } finally {
+    connector.kill('SIGTERM');
+    await local.close();
+  }
+}
+
 async function main() {
   expectInvalidForwardPathRejected();
   verifyRateLimitRetryAfterHelpers();
@@ -650,6 +699,7 @@ async function main() {
     await verifyRealConnectorForwardsLocalWsEvents();
     await verifyRealConnectorStreamsMultipartRequests();
     await verifyRealConnectorStreamsGeneratedAssets();
+    await verifyRealConnectorStreamsSpeechAudio();
     console.log('Relay smoke ok');
   } finally {
     relay.kill('SIGTERM');

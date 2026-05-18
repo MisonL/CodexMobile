@@ -52,11 +52,11 @@ Relay request streaming 已允许：
 Relay response streaming 已允许：
 
 - `/generated/*` 生成图片二进制读取。
+- `/api/voice/speech` 语音朗读音频流。
 
 Relay Phase 1 禁用或提示不支持：
 
 - `/ws/realtime` 实时语音。
-- 语音朗读音频流。
 - 大响应下载。
 
 禁用规则：

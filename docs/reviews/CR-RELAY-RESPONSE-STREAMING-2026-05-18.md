@@ -25,4 +25,4 @@
 
 ## 结论
 
-Generated asset response streaming is verified locally through the real relay server, real Mac connector process, and local HTTP fixture. Remaining Phase 2 and Phase 3 work still includes `/api/voice/speech` audio streaming, realtime voice, multi-Mac routing, secret rotation, real Space redeploy, and final PR/git收口.
+Generated asset response streaming is verified locally through the real relay server, real Mac connector process, and local HTTP fixture. Later speech audio streaming work is recorded separately in `CR-RELAY-SPEECH-STREAMING-2026-05-18.md`.

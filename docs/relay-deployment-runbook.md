@@ -257,6 +257,7 @@ Phase 1 单 secret 轮换：
 | `/ws/realtime` 501 | Phase 1 预期行为，实时语音仍需本地直连。 |
 | 上传或语音转写失败 | 检查 connector 是否为最新代码，确认 relay smoke 中 request streaming 用例通过。 |
 | 生成图片失败 | 检查 connector 是否为最新代码，确认 relay smoke 中 generated asset response streaming 用例通过。 |
+| 语音朗读失败 | 检查 connector 是否为最新代码，确认 relay smoke 中 speech audio response streaming 用例通过。 |
 
 ## 8. 部署记录模板
 

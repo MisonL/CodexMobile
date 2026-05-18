@@ -117,6 +117,15 @@ export function isRelayStreamingRequest(method, pathname, contentType = '') {
   return /multipart\/form-data|audio\/|image\//i.test(String(contentType || ''));
 }
 
+export function isRelayStreamingResponseRequest(method, pathname) {
+  const normalizedMethod = String(method || 'GET').toUpperCase();
+  const path = String(pathname || '');
+  if (normalizedMethod === 'GET' && path.startsWith('/generated/')) {
+    return true;
+  }
+  return normalizedMethod === 'POST' && path === '/api/voice/speech';
+}
+
 export function filterRequestHeaders(headers = {}) {
   const next = {};
   for (const [key, value] of Object.entries(headers)) {

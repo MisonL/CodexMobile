@@ -85,7 +85,7 @@ http://<电脑的私网 IP>:3321
 
 中转模式用于手机无法直连 Mac 私有网络时访问 CodexMobile。公网入口运行在 HuggingFace Docker Space，Mac 上运行 connector 主动连到 Space，再由 Space 转发浏览器请求到 Mac 本地服务。
 
-当前 relay 支持小体积 JSON / text HTTP 请求、普通 `/ws` 事件转发、`/api/uploads` 和 `/api/voice/transcribe` 的 chunked request streaming，以及 `/generated/*` 的 chunked response streaming。`/ws/realtime`、语音朗读音频流和其他大型响应下载仍然需要本地直连，relay 会返回明确错误。
+当前 relay 支持小体积 JSON / text HTTP 请求、普通 `/ws` 事件转发、`/api/uploads` 和 `/api/voice/transcribe` 的 chunked request streaming，以及 `/generated/*` 和 `/api/voice/speech` 的 chunked response streaming。`/ws/realtime` 和其他大型响应下载仍然需要本地直连，relay 会返回明确错误。
 
 Space 环境变量示例：
 

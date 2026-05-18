@@ -362,12 +362,21 @@ async function handleHttpStreamRequest(message) {
     const response = await fetch(buildLocalUrl(message.path), {
       method: message.method || 'GET',
       headers: filterRequestHeaders(message.headers || {}),
+      body: streamRequestBody(message),
       signal: AbortSignal.timeout(message.timeoutMs || REQUEST_TIMEOUT_MS)
     });
     await sendStreamingHttpResponse(requestId, response);
   } catch (error) {
     sendStreamError(requestId, error);
   }
+}
+
+function streamRequestBody(message) {
+  const method = String(message.method || 'GET').toUpperCase();
+  if (['GET', 'HEAD'].includes(method)) {
+    return undefined;
+  }
+  return decodeBody(message.bodyEncoding, message.body);
 }
 
 async function sendStreamingHttpResponse(requestId, response) {
