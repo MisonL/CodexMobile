@@ -13,6 +13,7 @@ npm run smoke
 npm run smoke:relay
 npm run space:prepare
 npm run smoke:relay:browser-fixture
+npm run test:space-verify
 npm run space:doctor
 npm audit --audit-level=high
 git diff --check
@@ -91,6 +92,26 @@ npm run space:doctor
 
 该命令只输出当前机器缺失项，不会触发外网部署。可通过 `--remote <huggingface-space-git-remote>` 或 `CODEXMOBILE_HF_SPACE_REMOTE` 提供目标 Space git remote。缺少 Space git remote、`CODEXMOBILE_RELAY_URL`、`CODEXMOBILE_RELAY_SECRET`、HuggingFace token 或已授权 git credential helper 时，视为真实 Space 试运行仍阻塞。`hf`/`huggingface-cli` 仅作为观察项，不是 `space:deploy` 的硬依赖。
 
+部署后 Space 验证：
+
+```bash
+npm run space:verify -- --url https://<space>.hf.space --require-mac
+```
+
+如果还没有浏览器 token，可用 Mac 本地服务打印的 6 位配对码通过 Space 配对并继续验证鉴权链路：
+
+```bash
+npm run space:verify -- --url https://<space>.hf.space --pair-code <pairing-code> --require-mac
+```
+
+如需验证 `/api/chat/send`，必须显式传入测试消息。该命令会在 Mac 侧创建真实 Codex 请求，不得用于只读巡检：
+
+```bash
+npm run space:verify -- --url https://<space>.hf.space --token <browser-device-token> --chat-message "CodexMobile relay verification" --require-mac
+```
+
+`space:verify` 不需要 relay secret，不会输出浏览器 token。默认只做 `/`、`/api/status`、`/ws/realtime` 和未认证 `/api/projects` 的只读检查；提供 token 或 pair code 后才验证 `/api/projects` 与 `/ws`。
+
 Space variables：
 
 ```text
@@ -166,6 +187,8 @@ Mac 侧通过条件：
 | 日志抽查 | 不出现 token、secret、配对码、请求体或完整本地路径。 |
 
 验收结果记录到 `docs/reviews/CR-RELAY-DEPLOY-YYYY-MM-DD.md`。
+
+可用 `space:verify` 生成公共入口、鉴权项目列表和浏览器 WebSocket 的自动化证据；停止 connector、本地服务停止、Space 重启和日志敏感信息抽查仍需在真实环境中人工执行并记录。
 
 ## 5. 回滚
 

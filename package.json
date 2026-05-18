@@ -16,6 +16,8 @@
     "space:prepare": "node scripts/prepare-hf-space.mjs",
     "space:deploy": "node scripts/deploy-hf-space.mjs",
     "space:doctor": "node scripts/space-doctor.mjs",
+    "space:verify": "node scripts/verify-hf-space.mjs",
+    "test:space-verify": "node --test tests/space-verify.test.mjs",
     "smoke:relay:browser-fixture": "node scripts/relay-browser-fixture.mjs",
     "asr:start": "node scripts/start-asr.mjs",
     "postinstall": "node scripts/patch-codex-sdk.mjs",

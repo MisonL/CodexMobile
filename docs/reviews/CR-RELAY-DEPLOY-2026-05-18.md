@@ -29,6 +29,7 @@
   - `mac_offline` rendered `Mac 未连接` and disabled composer actions while preserving the draft.
   - `429 relay_rate_limited` disabled only the send action and rendered `请求过快，请 18 秒后再试`.
   - Screenshot captured at `.codexmobile/relay-browser-offline.png`.
+  - Rechecked in Chrome DevTools on 2026-05-18: `valid-token` loaded the ready state, and `SIGUSR2` disconnect switched the page to `Mac 未连接` with send, upload and voice actions disabled.
 
 ## HuggingFace Space 部署包
 
@@ -38,12 +39,18 @@ Commands:
 
 - `npm run space:prepare`: passed
   - Output directory: `dist/hf-space`
-  - Generated files: 44
+  - Generated files: 47
+  - Includes `scripts/verify-hf-space.mjs` and `scripts/verify-hf-space-core.mjs`.
 - `npm run space:deploy -- --remote .codexmobile/hf-space-bare.git`: passed
   - Local bare remote received `refs/heads/main`.
   - Temporary deploy git metadata was removed from `dist/hf-space` after push.
 - `npm run space:doctor`: failed as expected in current shell
   - Missing `CODEXMOBILE_RELAY_URL`, `CODEXMOBILE_RELAY_SECRET`, HuggingFace Space git remote, and HuggingFace token or authenticated git credential helper.
+- `npm run test:space-verify`: passed
+  - Covers Space URL normalization from HTTPS and `wss://.../relay/mac`.
+  - Covers public read-only verification for `/`, `/api/status`, `/ws/realtime`, and unauthenticated `/api/projects`.
+  - Covers fallback PWA detection.
+  - Covers explicit pair-code flow, authenticated `/api/projects`, browser `/ws` connected event, and opt-in `/api/chat/send`.
 - `npm --prefix dist/hf-space ci`: passed
   - `postinstall` patched Codex SDK spawn options.
   - `found 0 vulnerabilities`
@@ -85,6 +92,7 @@ Deployment package constraints:
 | Docker Space package | `npm run space:prepare`; `dist/hf-space` generated without secrets | Passed |
 | Space git deploy path | `npm run space:deploy -- --remote .codexmobile/hf-space-bare.git` | Passed with local bare remote |
 | Space deploy preflight | `npm run space:doctor` | Blocked: missing relay URL, relay secret, Space remote, and HuggingFace credentials |
+| Space post-deploy verifier | `npm run test:space-verify` | Passed for verifier contract; real URL run remains blocked |
 | Docker Space container probe | `docker build` + `docker run -p 9795:7860` | Passed |
 | Phase 1B real Space deploy | Create/update HuggingFace Docker Space | Blocked: no HuggingFace credentials or target Space |
 | Phase 1B public mobile flow | Space URL PWA load, pair, `/api/projects`, `/api/chat/send`, `/ws` | Blocked: no public Space URL or relay secret |
@@ -103,6 +111,7 @@ Observed blockers:
 - `hf` and `huggingface-cli` are not installed in the shell environment.
 - `huggingface_hub` Python package is not installed in the shell environment.
 - HuggingFace browser API `GET /api/whoami-v2` returned `401`.
+- Chrome HuggingFace session is not authenticated; the page shows `Log In` and `Sign Up`.
 - No HuggingFace git remote is configured.
 - No target Space URL or Space secret was available for deployment.
 
@@ -112,6 +121,7 @@ Observed blockers:
 - Configure Space variables and `CODEXMOBILE_RELAY_SECRET`.
 - Start Mac local server and connector against the real Space URL.
 - Pair through the Space URL.
+- Run `npm run space:verify` against the real Space URL.
 - Verify `/api/projects`, `/api/chat/send`, `/ws`, `mac_offline`, `mac_local_offline`, and Space restart recovery through the public Space URL.
 - Inspect Space and Mac logs for sensitive data.
 
