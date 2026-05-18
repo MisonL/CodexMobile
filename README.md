@@ -81,6 +81,50 @@ http://<电脑的私网 IP>:3321
 
 第一次进入需要输入服务启动时打印的 6 位配对码。配对成功后，浏览器会保存设备 token，后续不需要每次重新输入。
 
+## HuggingFace Space 中转模式
+
+中转模式用于手机无法直连 Mac 私有网络时访问 CodexMobile。公网入口运行在 HuggingFace Docker Space，Mac 上运行 connector 主动连到 Space，再由 Space 转发浏览器请求到 Mac 本地服务。
+
+当前 Phase 1 支持小体积 JSON / text HTTP 请求和普通 `/ws` 事件转发。`/ws/realtime`、语音上传、图片二进制和大文件上传仍然需要本地直连，relay 会返回明确的 `501` 错误。
+
+Space 环境变量示例：
+
+```bash
+CODEXMOBILE_MODE=relay
+HOST=0.0.0.0
+PORT=7860
+CODEXMOBILE_RELAY_SECRET=<至少 32 字符的随机密钥>
+```
+
+Space 启动命令：
+
+```bash
+npm run start:relay
+```
+
+Mac 端需要先启动本地 CodexMobile，再启动 connector：
+
+```bash
+npm start
+CODEXMOBILE_RELAY_URL=wss://<space>.hf.space/relay/mac \
+CODEXMOBILE_RELAY_SECRET=<同一个随机密钥> \
+CODEXMOBILE_RELAY_LOCAL_URL=http://127.0.0.1:3321 \
+npm run relay:mac
+```
+
+本地 relay smoke：
+
+```bash
+npm run smoke:relay
+```
+
+更完整的 relay 设计、部署和前端状态契约：
+
+- `docs/relay-system-design.md`
+- `docs/relay-production-hardening-plan.md`
+- `docs/relay-deployment-runbook.md`
+- `docs/relay-frontend-ux-contract.md`
+
 ## HTTPS 与 iOS 语音权限
 
 iOS Safari / PWA 通常要求 HTTPS 才能稳定使用麦克风。你可以使用自己的证书、反向代理，或 Tailscale Serve 暴露 HTTPS 地址。
@@ -125,6 +169,11 @@ npm run start:env
 - `CLIPROXYAPI_API_KEY` / `CLI_PROXY_API_KEY`：OpenAI 兼容接口密钥
 - `CODEXMOBILE_CLIPROXY_MANAGEMENT_URL`：CLIProxyAPI 管理接口地址
 - `CODEXMOBILE_CLIPROXY_MANAGEMENT_KEY`：CLIProxyAPI 管理密钥
+- `CODEXMOBILE_RELAY_URL`：Mac connector 连接的 Space WebSocket 地址，仅 `npm run relay:mac` 使用
+- `CODEXMOBILE_RELAY_SECRET`：Space 和 Mac connector 共享的 relay 密钥，至少 32 字符
+- `CODEXMOBILE_RELAY_LOCAL_URL`：Mac connector 转发到的本地 CodexMobile 地址，默认 `http://127.0.0.1:3321`
+- `CODEXMOBILE_RELAY_PENDING_REQUESTS_MAX`：Space 全局 pending relay 请求上限，默认 `64`
+- `CODEXMOBILE_RELAY_BROWSER_PENDING_REQUESTS_MAX`：单浏览器 token pending relay 请求上限，默认 `6`
 
 不要提交 `.env`、`.codexmobile`、证书、日志、上传文件、生成图片或本地认证数据。
 
@@ -184,6 +233,9 @@ http://127.0.0.1:8000/v1/audio/transcriptions
 - `npm start`：启动 API、WebSocket 和构建后的 PWA
 - `npm run start:env`：读取 `.env` 后启动
 - `npm run start:bg`：后台启动服务，日志写入 `.codexmobile`
+- `npm run start:relay`：启动 HuggingFace Space relay server
+- `npm run relay:mac`：启动 Mac connector，主动连接 Space relay
+- `npm run smoke:relay`：运行 relay 离线、转发、事件和重连 smoke
 - `npm run asr:start`：构建并启动本地 SenseVoice ASR Docker 容器
 - `npm run smoke`：检查本机 `/api/status`
 

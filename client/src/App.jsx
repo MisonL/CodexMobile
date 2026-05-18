@@ -27,7 +27,17 @@ import {
   X
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { apiBlobFetch, apiFetch, clearToken, getToken, realtimeVoiceWebsocketUrl, setToken, websocketUrl } from './api.js';
+import {
+  apiBlobFetch,
+  apiFetch,
+  clearToken,
+  getToken,
+  rateLimitLockFromError,
+  realtimeVoiceWebsocketUrl,
+  remainingLockSeconds,
+  setToken,
+  websocketUrl
+} from './api.js';
 
 const DEFAULT_STATUS = {
   connected: false,
@@ -62,8 +72,56 @@ const DEFAULT_STATUS = {
 const CONNECTION_STATUS = {
   connected: { label: '已连接', className: 'is-connected' },
   connecting: { label: '连接中', className: 'is-connecting' },
+  pairing_required: { label: '需要配对', className: 'is-disconnected' },
+  mac_offline: { label: 'Mac 未连接', className: 'is-disconnected' },
+  mac_local_offline: { label: '本地服务离线', className: 'is-disconnected' },
+  degraded: { label: '连接不稳定', className: 'is-connecting' },
   disconnected: { label: '已断开', className: 'is-disconnected' }
 };
+
+function authenticatedFromStatus(data) {
+  return Boolean(data?.authenticated ?? data?.auth?.authenticated);
+}
+
+function connectionStateFromStatus(nextStatus) {
+  if (nextStatus?.mode !== 'relay') {
+    return nextStatus?.connected ? 'connected' : 'disconnected';
+  }
+  if (nextStatus.relayState && CONNECTION_STATUS[nextStatus.relayState]) {
+    return nextStatus.relayState;
+  }
+  if (!authenticatedFromStatus(nextStatus) || nextStatus.requiresPairing) {
+    return 'pairing_required';
+  }
+  if (!nextStatus.macConnected) {
+    return 'mac_offline';
+  }
+  if (nextStatus.localStatus?.reachable === false) {
+    return 'mac_local_offline';
+  }
+  return nextStatus.connected ? 'connected' : 'disconnected';
+}
+
+function relayDisabledReason(connectionState) {
+  if (connectionState === 'mac_offline') {
+    return 'Mac 连接器未在线';
+  }
+  if (connectionState === 'mac_local_offline') {
+    return 'Mac 本地服务未启动';
+  }
+  if (connectionState === 'pairing_required') {
+    return '需要重新配对';
+  }
+  if (connectionState === 'disconnected') {
+    return '连接已断开';
+  }
+  return '';
+}
+
+function retryAfterLabel(lock, nowMs = Date.now()) {
+  const seconds = remainingLockSeconds(lock, nowMs);
+  return seconds > 0 ? `请求过快，请 ${seconds} 秒后再试` : '';
+}
 
 const DEFAULT_REASONING_EFFORT = 'xhigh';
 const REASONING_DEFAULT_VERSION = 'xhigh-v1';
@@ -1753,10 +1811,14 @@ function Composer({
   attachments,
   onUploadFiles,
   onRemoveAttachment,
+  onRateLimit,
   uploading,
   onVoiceSubmit,
   onOpenVoiceDialog,
-  voiceDialogActive
+  voiceDialogActive,
+  disabled,
+  disabledReason,
+  actionDisabledReasons = {}
 }) {
   const textareaRef = useRef(null);
   const imageInputRef = useRef(null);
@@ -1775,6 +1837,10 @@ function Composer({
   const voiceRecording = voiceState === 'recording';
   const voiceTranscribing = voiceState === 'transcribing';
   const voiceSending = voiceState === 'sending';
+  const uploadDisabledReason = actionDisabledReasons.upload || disabledReason;
+  const sendDisabledReason = actionDisabledReasons.send || disabledReason;
+  const voiceDisabledReason = actionDisabledReasons.voice || disabledReason;
+  const voiceDialogDisabledReason = actionDisabledReasons.voiceDialog || disabledReason;
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -1801,7 +1867,7 @@ function Composer({
       onAbort();
       return;
     }
-    if (hasInput) {
+    if (hasInput && !disabled && !actionDisabledReasons.send) {
       onSubmit();
       setOpenMenu(null);
     }
@@ -1880,6 +1946,7 @@ function Composer({
       }
       return result.text.trim();
     } catch (error) {
+      onRateLimit?.(error, 'voice');
       setVoiceErrorBriefly(error.message || '语音转写失败');
       return '';
     }
@@ -1996,11 +2063,11 @@ function Composer({
       />
       {openMenu === 'attach' ? (
         <div className="composer-menu attach-menu">
-          <button type="button" onClick={() => imageInputRef.current?.click()}>
+          <button type="button" onClick={() => imageInputRef.current?.click()} disabled={Boolean(uploadDisabledReason)}>
             <Image size={17} />
             相册
           </button>
-          <button type="button" onClick={() => fileInputRef.current?.click()}>
+          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={Boolean(uploadDisabledReason)}>
             <FileText size={17} />
             文件
           </button>
@@ -2085,11 +2152,19 @@ function Composer({
           rows={1}
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="给 Codex 发送消息"
+          placeholder={disabledReason || '给 Codex 发送消息'}
+          disabled={disabled}
         />
         <div className="composer-controls">
           <div className="control-left">
-            <button type="button" className="ghost-icon" aria-label="添加" onClick={() => toggleMenu('attach')} disabled={uploading}>
+            <button
+              type="button"
+              className="ghost-icon"
+              aria-label="添加"
+              onClick={() => toggleMenu('attach')}
+              disabled={uploading || Boolean(uploadDisabledReason)}
+              title={uploadDisabledReason || undefined}
+            >
               <Plus size={21} />
             </button>
             <button type="button" className="permission-pill" onClick={() => toggleMenu('permission')}>
@@ -2106,6 +2181,8 @@ function Composer({
               type="button"
               className={`dialog-button ${voiceDialogActive ? 'is-active' : ''}`}
               onClick={onOpenVoiceDialog}
+              disabled={Boolean(voiceDialogDisabledReason)}
+              title={voiceDialogDisabledReason || undefined}
               aria-label="语音对话"
             >
               <Headphones size={16} />
@@ -2115,12 +2192,18 @@ function Composer({
               type="button"
               className={`voice-button ${voiceRecording ? 'is-recording' : ''} ${voiceTranscribing ? 'is-transcribing' : ''} ${voiceSending ? 'is-sending' : ''}`}
               onClick={toggleVoiceInput}
-              disabled={voiceTranscribing || voiceSending}
+              disabled={voiceTranscribing || voiceSending || Boolean(voiceDisabledReason)}
+              title={voiceDisabledReason || undefined}
               aria-label={voiceRecording ? '停止语音输入' : voiceSending ? '正在发送语音' : '开始语音输入'}
             >
               {voiceTranscribing || voiceSending ? <Loader2 className="spin" size={16} /> : <Mic size={17} />}
             </button>
-            <button type="submit" className={`send-button ${running ? 'is-running' : ''}`} disabled={uploading || (!hasInput && !running)}>
+            <button
+              type="submit"
+              className={`send-button ${running ? 'is-running' : ''}`}
+              disabled={uploading || (Boolean(sendDisabledReason) && !running) || (!hasInput && !running)}
+              title={sendDisabledReason || undefined}
+            >
               {running && !hasInput ? <Square size={16} /> : uploading ? <Loader2 className="spin" size={16} /> : <ArrowUp size={19} />}
             </button>
           </div>
@@ -2213,6 +2296,8 @@ export default function App() {
   const [voiceDialogTranscript, setVoiceDialogTranscript] = useState('');
   const [voiceDialogAssistantText, setVoiceDialogAssistantText] = useState('');
   const [voiceDialogHandoffDraft, setVoiceDialogHandoffDraft] = useState('');
+  const [relayOperationLocks, setRelayOperationLocks] = useState({});
+  const [relayOperationLockNow, setRelayOperationLockNow] = useState(Date.now());
 
   useEffect(() => {
     const root = document.documentElement;
@@ -2256,9 +2341,33 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const hasActiveLock = Object.values(relayOperationLocks).some((lock) => remainingLockSeconds(lock) > 0);
+    if (!hasActiveLock) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => setRelayOperationLockNow(Date.now()), 500);
+    return () => window.clearInterval(timer);
+  }, [relayOperationLocks]);
+
   const running =
     hasRunningKey(runningById, selectedRunKeys(selectedSession)) ||
     messages.some((message) => message.role === 'activity' && (message.status === 'running' || message.status === 'queued'));
+
+  function rememberRelayOperationLock(scope, error) {
+    const lock = rateLimitLockFromError(error, scope);
+    if (!lock) {
+      return false;
+    }
+    setRelayOperationLocks((current) => {
+      if (current[scope]?.untilMs >= lock.untilMs) {
+        return current;
+      }
+      return { ...current, [scope]: lock };
+    });
+    setRelayOperationLockNow(Date.now());
+    return true;
+  }
 
   function setVoiceDialogMode(next) {
     voiceDialogStateRef.current = next;
@@ -2981,6 +3090,7 @@ export default function App() {
       });
       await playAudioBlob(blob);
     } catch (error) {
+      rememberRelayOperationLock('voiceDialog', error);
       try {
         await speakWithBrowser(text);
       } catch {
@@ -3065,6 +3175,7 @@ export default function App() {
           setVoiceDialogMode('waiting');
         } catch (error) {
           voiceDialogAwaitingTurnRef.current = null;
+          rememberRelayOperationLock('voiceDialog', error);
           setVoiceDialogErrorBriefly(error.message || '语音对话失败');
         }
       };
@@ -3446,7 +3557,8 @@ export default function App() {
   const loadStatus = useCallback(async () => {
     const data = await apiFetch('/api/status');
     setStatus(data);
-    setAuthenticated(Boolean(data.auth?.authenticated));
+    setAuthenticated(authenticatedFromStatus(data));
+    setConnectionState(connectionStateFromStatus(data));
     syncActiveRunsFromStatus(data);
     return data;
   }, []);
@@ -3499,7 +3611,7 @@ export default function App() {
   const bootstrap = useCallback(async () => {
     try {
       const currentStatus = await loadStatus();
-      if (currentStatus.auth?.authenticated) {
+      if (authenticatedFromStatus(currentStatus)) {
         await loadProjects();
         setSyncing(true);
         apiFetch('/api/sync', { method: 'POST' })
@@ -3546,10 +3658,12 @@ export default function App() {
       ws.onerror = () => setConnectionState('disconnected');
       ws.onmessage = (event) => {
       const payload = JSON.parse(event.data);
-      if (payload.type === 'connected') {
-        setStatus(payload.status || DEFAULT_STATUS);
-        setConnectionState(payload.status?.connected ? 'connected' : 'disconnected');
-        syncActiveRunsFromStatus(payload.status || DEFAULT_STATUS);
+      if (payload.type === 'connected' || payload.type === 'relay-status') {
+        const { type, ...relayStatus } = payload;
+        const nextStatus = payload.type === 'connected' ? payload.status || DEFAULT_STATUS : relayStatus;
+        setStatus(nextStatus);
+        setConnectionState(connectionStateFromStatus(nextStatus));
+        syncActiveRunsFromStatus(nextStatus);
         return;
       }
       if (payload.type === 'chat-started') {
@@ -3947,6 +4061,7 @@ export default function App() {
         setAttachments((current) => [...current, result.upload]);
       }
     } catch (error) {
+      rememberRelayOperationLock('upload', error);
       setMessages((current) => [
         ...current,
         {
@@ -4222,6 +4337,7 @@ export default function App() {
         previousSessionId: draftSessionId || outgoingSessionId
       };
     } catch (error) {
+      rememberRelayOperationLock('send', error);
       clearRun({ turnId, sessionId: optimisticSessionId, previousSessionId: draftSessionId || outgoingSessionId });
       if (clearComposer) {
         setAttachments(selectedAttachments);
@@ -4542,6 +4658,13 @@ export default function App() {
   }
 
   const shellClass = useMemo(() => (drawerOpen ? 'app-shell drawer-active' : 'app-shell'), [drawerOpen]);
+  const composerDisabledReason = relayDisabledReason(connectionState);
+  const actionDisabledReasons = useMemo(() => ({
+    send: retryAfterLabel(relayOperationLocks.send, relayOperationLockNow),
+    upload: retryAfterLabel(relayOperationLocks.upload, relayOperationLockNow),
+    voice: retryAfterLabel(relayOperationLocks.voice, relayOperationLockNow),
+    voiceDialog: retryAfterLabel(relayOperationLocks.voiceDialog, relayOperationLockNow)
+  }), [relayOperationLockNow, relayOperationLocks]);
 
   if (!authenticated) {
     return <PairingScreen onPaired={bootstrap} />;
@@ -4624,10 +4747,14 @@ export default function App() {
         attachments={attachments}
         onUploadFiles={handleUploadFiles}
         onRemoveAttachment={handleRemoveAttachment}
+        onRateLimit={rememberRelayOperationLock}
         uploading={uploading}
         onVoiceSubmit={handleVoiceSubmit}
         onOpenVoiceDialog={openVoiceDialog}
         voiceDialogActive={voiceDialogOpen}
+        disabled={Boolean(composerDisabledReason)}
+        disabledReason={composerDisabledReason}
+        actionDisabledReasons={actionDisabledReasons}
       />
       <ImagePreviewModal image={previewImage} onClose={() => setPreviewImage(null)} />
     </div>

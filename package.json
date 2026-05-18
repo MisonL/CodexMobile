@@ -9,11 +9,14 @@
     "dev:client": "vite --host 0.0.0.0 --config client/vite.config.js",
     "build": "vite build --config client/vite.config.js",
     "start": "node server/index.js",
+    "start:relay": "node server/relay-server.js",
     "start:env": "node --env-file=.env server/index.js",
     "start:bg": "node scripts/start-server.mjs",
+    "relay:mac": "node scripts/relay-mac-client.mjs",
     "asr:start": "node scripts/start-asr.mjs",
     "postinstall": "node scripts/patch-codex-sdk.mjs",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "smoke:relay": "node scripts/relay-smoke.mjs"
   },
   "dependencies": {
     "@openai/codex-sdk": "^0.101.0",
