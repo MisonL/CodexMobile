@@ -36,7 +36,10 @@ Commands:
 
 - `npm run space:prepare`: passed
   - Output directory: `dist/hf-space`
-  - Generated files: 42
+  - Generated files: 44
+- `npm run space:deploy -- --remote .codexmobile/hf-space-bare.git`: passed
+  - Local bare remote received `refs/heads/main`.
+  - Temporary deploy git metadata was removed from `dist/hf-space` after push.
 - `npm --prefix dist/hf-space ci`: passed
   - `postinstall` patched Codex SDK spawn options.
   - `found 0 vulnerabilities`

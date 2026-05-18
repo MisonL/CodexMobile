@@ -110,6 +110,12 @@ npm run space:prepare
 
 默认输出到 `dist/hf-space`。将该目录内容推送到目标 Space 仓库后，再在 HuggingFace Space Settings 中配置 `CODEXMOBILE_RELAY_SECRET`。
 
+拿到目标 Space git remote 后可直接推送：
+
+```bash
+npm run space:deploy -- --remote <huggingface-space-git-remote>
+```
+
 Mac 端需要先启动本地 CodexMobile，再启动 connector：
 
 ```bash

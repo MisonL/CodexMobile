@@ -74,6 +74,14 @@ npm run space:prepare
 
 默认输出到 `dist/hf-space`，目录内包含 Space README YAML、Dockerfile、`package*.json`、`client/`、`server/` 和运行 relay 所需的 `scripts/`。该目录不得包含 `.env`、`.codexmobile/`、`node_modules/` 或任何 relay secret。
 
+将工作目录推送到 HuggingFace Space git remote：
+
+```bash
+npm run space:deploy -- --remote <huggingface-space-git-remote>
+```
+
+该命令会先刷新 `dist/hf-space`，再在工作目录内初始化临时 git 仓库、提交生成产物并强制推送到目标 remote。推送前必须先在 HuggingFace Space Settings 中配置 `CODEXMOBILE_RELAY_SECRET`。
+
 Space variables：
 
 ```text
