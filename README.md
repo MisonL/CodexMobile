@@ -117,7 +117,7 @@ npx codexmobile uninstall --json
 npx codexmobile relay-config --json
 ```
 
-`doctor` 会检查 Node.js 版本、Codex 配置路径、默认 HTTP/HTTPS 端口、Tailscale 命令可用性和本机私网地址。`start` 会用后台进程运行 `codexmobile serve`，日志写入用户级日志目录；`stop` 只停止 CLI 状态文件记录的 CodexMobile 进程；`logs` 会读取最近日志并脱敏 relay secret、Bearer token 和 URL token；`status` 会返回用户级数据目录、日志目录、LaunchAgent 路径、plist 是否存在、`launchctl` 是否已加载和脱敏后的 relay 配置。`install --dry-run` 只输出将要创建的目录、plist 内容和将要执行的 `launchctl` 命令；`install` 会写入 plist、执行 `plutil -lint`，再调用 `launchctl bootstrap` 和 `kickstart`。`enable` 重新 bootstrap 并 kickstart 当前用户 LaunchAgent，`disable` 调用 `launchctl bootout`。`uninstall` 默认只移除 plist 并保留用户数据目录；删除用户数据必须显式同时传入 `--remove-data --confirm-remove-data`。
+`doctor` 会检查 Node.js 版本、Codex 配置路径、默认 HTTP/HTTPS 端口、Tailscale 命令可用性和本机私网地址。`start` 会用后台进程运行 `codexmobile serve`，日志写入用户级日志目录；若旧 PID 已被其他进程复用或 state 结构不完整，`start` 会清理 stale state 后重新启动。`stop` 只停止 CLI 状态文件记录且命令行匹配的 CodexMobile 进程；`logs` 会读取最近日志并脱敏 relay secret、Bearer token 和 URL token；`status` 会返回用户级数据目录、日志目录、LaunchAgent 路径、plist 是否存在、`launchctl` 是否已加载和脱敏后的 relay 配置。`install --dry-run` 只输出将要创建的目录、plist 内容、将要执行的 `launchctl` 命令和错误处理说明，其中 `bootout` 仅允许服务未加载或不存在类错误失败；`install` 会写入 plist、执行 `plutil -lint`，再以幂等方式 `bootout` 旧用户服务、`bootstrap` 并 `kickstart`。`enable` 同样会幂等重载并 kickstart 当前用户 LaunchAgent，`disable` 调用 `launchctl bootout`。`uninstall` 默认只移除 plist 并保留用户数据目录；删除用户数据必须显式同时传入 `--remove-data --confirm-remove-data`。
 
 保存 Mac connector 的 relay 配置：
 
@@ -146,7 +146,7 @@ node bin/codexmobile.mjs relay-config \
 当前平台边界：
 
 - macOS：已实现用户级 LaunchAgent，显式 `install` 才写入 `~/Library/LaunchAgents/com.codexmobile.agent.plist`。
-- Windows：已覆盖路径解析和子进程 PATH 去重；尚未实现 Task Scheduler 自启安装。
+- Windows：已覆盖路径解析和子进程 PATH 去重；进程状态目前只做 PID 存活判断，不做命令行归属校验；尚未实现 Task Scheduler 自启安装。
 - Linux：已覆盖 XDG 用户数据路径解析；尚未实现 user systemd 自启安装。
 
 以下仍需真实环境复验，不能由本地自动化结果代替：iPhone PWA 安装、移动端 Safari 麦克风权限、手机经 Tailscale 访问、本机重启后 macOS 登录自启、真实 HuggingFace Space authenticated connector、真实 Codex 子进程完整对话链路。
