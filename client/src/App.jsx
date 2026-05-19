@@ -38,85 +38,17 @@ import {
   setToken,
   websocketUrl
 } from './api.js';
-
-const DEFAULT_STATUS = {
-  connected: false,
-  provider: 'cliproxyapi',
-  model: 'gpt-5.5',
-  modelShort: '5.5 中',
-  reasoningEffort: 'xhigh',
-  models: [{ value: 'gpt-5.5', label: 'gpt-5.5' }],
-  docs: {
-    provider: 'feishu',
-    integration: 'lark-cli',
-    label: '飞书文档',
-    configured: false,
-    connected: false,
-    user: null,
-    homeUrl: 'https://docs.feishu.cn/',
-    cliInstalled: false,
-    skillsInstalled: false,
-    capabilities: [],
-    codexEnabled: false,
-    authorizationReady: false,
-    missingScopes: [],
-    scopeGroups: [],
-    slidesAuthorized: false,
-    sheetsAuthorized: false,
-    authPending: null
-  },
-  voiceRealtime: { configured: false, model: 'qwen3.5-omni-plus-realtime', provider: '阿里百炼' },
-  auth: { authenticated: false }
-};
-
-const CONNECTION_STATUS = {
-  connected: { label: '已连接', className: 'is-connected' },
-  connecting: { label: '连接中', className: 'is-connecting' },
-  pairing_required: { label: '需要配对', className: 'is-disconnected' },
-  mac_offline: { label: 'Mac 未连接', className: 'is-disconnected' },
-  mac_local_offline: { label: '本地服务离线', className: 'is-disconnected' },
-  degraded: { label: '连接不稳定', className: 'is-connecting' },
-  disconnected: { label: '已断开', className: 'is-disconnected' }
-};
-
-function authenticatedFromStatus(data) {
-  return Boolean(data?.authenticated ?? data?.auth?.authenticated);
-}
-
-function connectionStateFromStatus(nextStatus) {
-  if (nextStatus?.mode !== 'relay') {
-    return nextStatus?.connected ? 'connected' : 'disconnected';
-  }
-  if (nextStatus.relayState && CONNECTION_STATUS[nextStatus.relayState]) {
-    return nextStatus.relayState;
-  }
-  if (!authenticatedFromStatus(nextStatus) || nextStatus.requiresPairing) {
-    return 'pairing_required';
-  }
-  if (!nextStatus.macConnected) {
-    return 'mac_offline';
-  }
-  if (nextStatus.localStatus?.reachable === false) {
-    return 'mac_local_offline';
-  }
-  return nextStatus.connected ? 'connected' : 'disconnected';
-}
-
-function relayDisabledReason(connectionState) {
-  if (connectionState === 'mac_offline') {
-    return 'Mac 连接器未在线';
-  }
-  if (connectionState === 'mac_local_offline') {
-    return 'Mac 本地服务未启动';
-  }
-  if (connectionState === 'pairing_required') {
-    return '需要重新配对';
-  }
-  if (connectionState === 'disconnected') {
-    return '连接已断开';
-  }
-  return '';
-}
+import {
+  CONNECTION_STATUS,
+  DEFAULT_STATUS,
+  authenticatedFromStatus,
+  connectionStateFromStatus,
+  relayDisabledReason
+} from './relay-status.js';
+import {
+  isBenignRealtimeCancelError,
+  isVoiceHandoffCommand
+} from './voice-utils.js';
 
 function retryAfterLabel(lock, nowMs = Date.now()) {
   const seconds = remainingLockSeconds(lock, nowMs);
@@ -139,42 +71,6 @@ const REALTIME_VOICE_BUFFER_SIZE = 2048;
 const REALTIME_VOICE_MIN_TURN_MS = 500;
 const REALTIME_VOICE_BARGE_IN_LEVEL_THRESHOLD = 0.026;
 const REALTIME_VOICE_BARGE_IN_SUSTAIN_MS = 180;
-
-function realtimePayloadErrorMessage(payload) {
-  return String(payload?.error?.message || payload?.error || payload?.message || '');
-}
-
-function isBenignRealtimeCancelError(payload) {
-  return /Conversation has none active response/i.test(realtimePayloadErrorMessage(payload));
-}
-
-function normalizeVoiceCommandText(value) {
-  return String(value || '')
-    .toLowerCase()
-    .replace(/[\s，。！？、,.!?;；:："'“”‘’（）()【】\[\]<>《》]/g, '');
-}
-
-function isVoiceHandoffCommand(value) {
-  const text = normalizeVoiceCommandText(value);
-  if (!text) {
-    return false;
-  }
-  const wantsSummary = /总结|整理|归纳|汇总|梳理|提炼|概括|组织|形成任务|变成任务|整理成任务/.test(text);
-  const wantsHandoff = /交给|发给|发送给|提交给|提交|让|叫|拿给|丢给|转给|传给|给/.test(text);
-  const wantsAction = /执行|处理|做|改|实现|修|查|跑|操作|落实|开始干/.test(text);
-  const mentionsExecutor =
-    /codex|code[x叉]?|代码|扣德克斯|扣得克斯|扣的克斯|扣得|扣德|科德克斯|科得克斯|寇德克斯|口德克斯|口得克斯|助手|后台|你/.test(text);
-  if (mentionsExecutor && ((wantsSummary && wantsHandoff) || (wantsSummary && wantsAction) || (wantsHandoff && wantsAction))) {
-    return true;
-  }
-  if (wantsSummary && wantsHandoff) {
-    return true;
-  }
-  if (/交给codex|发给codex|提交给codex|让codex|交给代码|发给代码|提交给代码|让代码/.test(text)) {
-    return true;
-  }
-  return false;
-}
 
 async function copyTextToClipboard(text) {
   const value = String(text || '');

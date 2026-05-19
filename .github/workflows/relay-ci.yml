@@ -29,8 +29,11 @@ jobs:
         run: |
           node --check server/relay-server.js
           node --check server/relay-runtime.js
+          node --check server/relay-runtime-mac.js
           node --check server/relay-runtime-pending.js
+          node --check server/relay-runtime-realtime.js
           node --check server/relay-runtime-status.js
+          node --check server/relay-runtime-stream-response.js
           node --check server/relay-runtime-token-cache.js
           node --check server/relay-http.js
           node --check server/relay-http-body.js
@@ -40,7 +43,11 @@ jobs:
           node --check scripts/relay-mac-client-backpressure.mjs
           node --check scripts/relay-mac-client-body.mjs
           node --check scripts/relay-mac-client-config.mjs
+          node --check scripts/relay-mac-client-http.mjs
+          node --check scripts/relay-mac-client-http-response.mjs
+          node --check scripts/relay-mac-client-local.mjs
           node --check scripts/relay-mac-client-reconnect.mjs
+          node --check scripts/relay-mac-client-realtime.mjs
           node --check scripts/relay-mac-client.mjs
           node --check scripts/relay-smoke-basic.mjs
           node --check scripts/relay-smoke-connector-scenarios.mjs
