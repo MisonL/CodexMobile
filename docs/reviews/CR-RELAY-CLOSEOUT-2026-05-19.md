@@ -2,7 +2,7 @@
 
 ## 范围
 
-本记录覆盖 `codex/relay-phase1` 的 2026-05-19 收口推进：文档口径、CI 门禁、复杂度治理、依赖安全、当前本地验证和线上只读 Space 验证。
+本记录覆盖 `codex/relay-phase1` 的 2026-05-19 收口推进：文档口径、CI 门禁、复杂度治理、依赖安全、当前本地验证和线上 Space 验证。
 
 ## 变更摘要
 
@@ -81,17 +81,17 @@ npm run space:verify -- --url https://misonl-codexmobile-relay.hf.space --token 
 
 - PR: `https://github.com/RNG2018-mlxg/CodexMobile/pull/4`
 - State: `OPEN`
-- Draft: `true`
+- Draft: `false`
 - Head: `codex/relay-phase1`
 - Base: `main`
-- Status checks: 当前 GitHub 返回空；新增 workflow 需要推送本轮改动后才会出现在 PR checks 中。
+- Merge state: `CLEAN`
+- Upstream PR status rollup: 当前 GitHub 返回空，未显示上游 PR checks。
+- Fork CI: `.github/workflows/relay-ci.yml` 已定义 `Relay CI`，在 fork 分支 push 上覆盖 `npm ci`、relay 语法检查、`npm run test:space-verify`、`npm run smoke:relay`、本地 server smoke、`npm run build` 和 `git diff --check`。最新 head 是否通过以 GitHub Actions 当前 run 为准。
 
 ## 结论
 
-本轮已完成文档口径对齐、CI 门禁定义、低风险复杂度拆分、依赖 audit 修复和本地验证闭环。当前剩余项不是隐藏失败路径，而是明确后续工作：
+本轮已完成文档口径对齐、CI 门禁定义、低风险复杂度拆分、依赖 audit 修复、本地验证闭环、最新 Space 部署复验和 PR ready 状态确认。当前剩余项不是隐藏失败路径，而是明确后续工作：
 
-- 推送本轮改动后确认 GitHub Actions 通过。
-- 将 PR 从 draft 切换为 ready for review。
 - 分阶段拆分 `server/relay-runtime.js`、`scripts/relay-mac-client.mjs` 和 `scripts/relay-smoke.mjs`。
 - 如产品需要多台 Mac 同时在线，再设计 explicit multi-Mac routing UI/API。
 - 如进入多人、长期公网或 hostile network 使用场景，再补 per-token request cap、长期日志审计、secret rotation 演练记录、告警/指标导出和真实 provider-ready realtime 门禁。
