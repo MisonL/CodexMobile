@@ -29,6 +29,8 @@ jobs:
         run: |
           node --check server/relay-server.js
           node --check server/relay-runtime.js
+          node --check server/relay-runtime-status.js
+          node --check server/relay-runtime-token-cache.js
           node --check server/relay-http.js
           node --check server/relay-http-body.js
           node --check server/relay-http-static.js

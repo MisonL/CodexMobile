@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import {
   DEFAULT_RELAY_WS_BUFFERED_BYTES,
   RELAY_PROTOCOL_VERSION,
@@ -8,6 +7,11 @@ import {
   safeJsonParse,
   sendWsJson
 } from './relay-protocol.js';
+import { createBrowserTokenCache } from './relay-runtime-token-cache.js';
+import {
+  buildRelayStatus,
+  createRelayMetrics
+} from './relay-runtime-status.js';
 
 export function createRelayRuntime({
   relaySecret,
@@ -23,22 +27,8 @@ export function createRelayRuntime({
   const browserSockets = new Set();
   const pendingRequests = new Map();
   const realtimeSockets = new Map();
-  const validTokenCache = new Map();
-  const metrics = {
-    relayRequestsTotal: 0,
-    relayRequestsFailed: 0,
-    relayRequestsTimedOut: 0,
-    rateLimitedTotal: 0,
-    pendingLimitRejectedTotal: 0,
-    authValidationMissTotal: 0,
-    macAuthFailuresTotal: 0,
-    macConnectsTotal: 0,
-    macDisconnectsTotal: 0,
-    macHeartbeatMissesTotal: 0,
-    multiMacRejectedTotal: 0,
-    realtimeTunnelsTotal: 0,
-    realtimeTunnelsClosedTotal: 0
-  };
+  const browserTokenCache = createBrowserTokenCache({ ttlMs: tokenCacheTtlMs });
+  const metrics = createRelayMetrics();
 
   let macSocket = null;
   let macInfo = null;
@@ -46,42 +36,8 @@ export function createRelayRuntime({
   let heartbeatTimer = null;
   const relayStartedAt = new Date().toISOString();
 
-  function tokenCacheKey(token) {
-    return crypto.createHash('sha256').update(token).digest('hex');
-  }
-
-  function cleanupTokenCache() {
-    const now = Date.now();
-    for (const [token, entry] of validTokenCache.entries()) {
-      if (!entry.expiresAt || entry.expiresAt <= now) {
-        validTokenCache.delete(token);
-      }
-    }
-  }
-
   function hasCachedBrowserToken(token) {
-    if (!token) {
-      return false;
-    }
-    cleanupTokenCache();
-    const cached = validTokenCache.get(tokenCacheKey(token));
-    return Boolean(cached && cached.expiresAt > Date.now());
-  }
-
-  function relayState(authenticated) {
-    if (!authenticated) {
-      return 'pairing_required';
-    }
-    if (!macSocket || macSocket.readyState !== macSocket.OPEN) {
-      return 'mac_offline';
-    }
-    if (macInfo?.localStatus?.reachable === false) {
-      return 'mac_local_offline';
-    }
-    if (metrics.macHeartbeatMissesTotal > 0 || metrics.relayRequestsTimedOut > 0) {
-      return 'degraded';
-    }
-    return 'ready';
+    return browserTokenCache.has(token);
   }
 
   function isValidRelaySecret(value) {
@@ -89,38 +45,24 @@ export function createRelayRuntime({
   }
 
   function currentRelayStatus(authenticated = false) {
-    cleanupTokenCache();
-    return {
-      mode: 'relay',
-      relayState: relayState(authenticated),
-      connected: true,
+    browserTokenCache.cleanup();
+    return buildRelayStatus({
       authenticated,
-      requiresPairing: !authenticated,
-      macConnected: Boolean(macSocket && macSocket.readyState === macSocket.OPEN),
-      macDeviceName: macInfo?.deviceName || '',
+      browserSocketsCurrent: browserSockets.size,
+      heartbeatMs,
+      idleHeartbeatMs,
       macConnectionEpoch,
-      macConnectedAt: macInfo?.connectedAt || '',
-      macLastSeenAt: macInfo?.lastSeenAt || '',
-      localStatus: macInfo?.localStatus || { reachable: false, checkedAt: '' },
+      macConnected: Boolean(macSocket && macSocket.readyState === macSocket.OPEN),
+      macInfo,
+      metrics,
       pendingRelayRequests: pendingRequests.size,
-      relayStartedAt,
-      limits: {
-        pendingRequestsMax,
-        browserPendingRequestsMax,
-        requestBodyMaxBytes,
-        heartbeatMs,
-        idleHeartbeatMs
-      },
-      secrets: {
-        previousConfigured: Boolean(previousRelaySecret)
-      },
-      metrics: {
-        ...metrics,
-        browserSocketsCurrent: browserSockets.size,
-        realtimeSocketsCurrent: realtimeSockets.size,
-        pendingRequestsCurrent: pendingRequests.size
-      }
-    };
+      pendingRequestsMax,
+      browserPendingRequestsMax,
+      requestBodyMaxBytes,
+      previousRelaySecret,
+      realtimeSocketsCurrent: realtimeSockets.size,
+      relayStartedAt
+    });
   }
 
   function broadcast(payload) {
@@ -484,10 +426,8 @@ export function createRelayRuntime({
     if (!token) {
       return false;
     }
-    cleanupTokenCache();
-    const cacheKey = tokenCacheKey(token);
-    const cached = validTokenCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
+    browserTokenCache.cleanup();
+    if (browserTokenCache.has(token)) {
       return true;
     }
     const timeoutMs = Math.min(requestTimeoutMs, 30000);
@@ -499,7 +439,7 @@ export function createRelayRuntime({
       metrics.authValidationMissTotal += 1;
       return false;
     }
-    validTokenCache.set(cacheKey, { expiresAt: Date.now() + tokenCacheTtlMs });
+    browserTokenCache.setValid(token);
     return true;
   }
 
@@ -648,7 +588,7 @@ export function createRelayRuntime({
       toBrowserSequence: 0
     };
     try {
-      assertMacAvailable({ type: 'realtime.open' }, `browser:${tokenCacheKey(token)}`);
+      assertMacAvailable({ type: 'realtime.open' }, `browser:${browserTokenCache.key(token)}`);
     } catch (error) {
       ws.send(JSON.stringify({ type: 'voice.realtime.error', error: error.message || 'mac_offline' }));
       ws.close(1011, error.message || 'mac_offline');
