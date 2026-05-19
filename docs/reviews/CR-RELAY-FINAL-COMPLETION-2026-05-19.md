@@ -59,11 +59,11 @@
 - Draft: `false`
 - Merge state: `CLEAN`
 - Upstream `statusCheckRollup`: empty
-- Latest pushed head: `62a0db079ddd9fc74c72b6eebfbfb73c103db8f9`
-- Latest fork CI: `Relay CI` run `26072308043`, success
+- Code-change head verified by fork CI before docs sync: `62a0db079ddd9fc74c72b6eebfbfb73c103db8f9`
+- Code-change fork CI: `Relay CI` run `26072308043`, success
 - CI URL: `https://github.com/MisonL/CodexMobile/actions/runs/26072308043`
 
-上游 PR 仍未返回 `statusCheckRollup`，因此当前以 fork `Relay CI` run 和本地验证记录作为评审证据。
+上游 PR 仍未返回 `statusCheckRollup`，因此当前以 fork `Relay CI` run 和本地验证记录作为评审证据。后续 docs-only 提交会产生新的 head，合并前以 fork Actions 最新 run 为准。
 
 ## 外部门禁
 
