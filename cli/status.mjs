@@ -4,6 +4,7 @@ import net from 'node:net';
 import os from 'node:os';
 
 import { resolveRuntimePaths } from './paths.mjs';
+import { collectManagedProcessStatus } from './process-manager.mjs';
 
 const MIN_NODE_MAJOR = 20;
 const DEFAULT_HTTP_PORT = 3321;
@@ -127,6 +128,7 @@ export async function collectDoctorReport(options = {}) {
 export async function collectStatusReport(options = {}) {
   const paths = resolveRuntimePaths(options);
   const fileSystem = options.fs || fs;
+  const processStatus = await collectManagedProcessStatus({ ...options, paths });
   const launchAgentInstalled = paths.launchAgentPath
     ? await pathExists(fileSystem, paths.launchAgentPath)
     : false;
@@ -134,11 +136,7 @@ export async function collectStatusReport(options = {}) {
   return {
     command: 'status',
     ok: true,
-    process: {
-      managed: false,
-      pid: null,
-      detail: 'No CLI-managed process state is recorded in this phase.'
-    },
+    process: processStatus,
     launchAgent: {
       supported: paths.platform === 'darwin',
       installed: launchAgentInstalled,

@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 
 import { buildMacInstallPlan } from './launch-agent.mjs';
 import { resolveRuntimePaths } from './paths.mjs';
+import * as defaultProcessManager from './process-manager.mjs';
 import {
   collectDoctorReport,
   collectStatusReport
@@ -77,6 +78,47 @@ async function runStatus(options) {
   };
 }
 
+function processManager(options) {
+  return options.processManager || defaultProcessManager;
+}
+
+function processOptions(options) {
+  return {
+    ...options,
+    paths: resolveRuntimePaths(options)
+  };
+}
+
+async function runStart(options) {
+  return {
+    code: 0,
+    output: await processManager(options).startManagedServer(processOptions(options))
+  };
+}
+
+async function runStop(options) {
+  const output = await processManager(options).stopManagedServer(processOptions(options));
+  return {
+    code: output.ok === false ? 1 : 0,
+    output
+  };
+}
+
+async function runRestart(options) {
+  const output = await processManager(options).restartManagedServer(processOptions(options));
+  return {
+    code: output.ok === false ? 1 : 0,
+    output
+  };
+}
+
+async function runLogs(options) {
+  return {
+    code: 0,
+    output: await processManager(options).readManagedLogs(processOptions(options))
+  };
+}
+
 function runInstall(args, options) {
   if (!hasFlag(args, '--dry-run')) {
     return errorResult('install currently requires --dry-run.');
@@ -98,7 +140,7 @@ function runHelp() {
     output: {
       command: 'help',
       ok: true,
-      commands: ['doctor', 'status', 'install --dry-run', 'serve']
+      commands: ['doctor', 'status', 'install --dry-run', 'start', 'stop', 'restart', 'logs', 'serve']
     }
   };
 }
@@ -112,6 +154,18 @@ async function routeCommand(command, args, options) {
   }
   if (command === 'install') {
     return runInstall(args, options);
+  }
+  if (command === 'start') {
+    return runStart(options);
+  }
+  if (command === 'stop') {
+    return runStop(options);
+  }
+  if (command === 'restart') {
+    return runRestart(options);
+  }
+  if (command === 'logs') {
+    return runLogs(options);
   }
   if (command === 'serve') {
     return runServe();

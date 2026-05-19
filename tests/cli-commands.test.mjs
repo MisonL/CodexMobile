@@ -74,6 +74,35 @@ test('runCli returns status JSON with runtime paths', async () => {
   assert.equal(result.output.process.managed, false);
 });
 
+test('runCli routes lifecycle commands through injected process manager helpers', async () => {
+  const options = await makeFixture();
+  const calls = [];
+  const processManager = {
+    startManagedServer: async () => {
+      calls.push('start');
+      return { command: 'start', ok: true, started: true, pid: 111 };
+    },
+    stopManagedServer: async () => {
+      calls.push('stop');
+      return { command: 'stop', ok: true, stopped: true, pid: 111 };
+    },
+    restartManagedServer: async () => {
+      calls.push('restart');
+      return { command: 'restart', ok: true, stopped: true, started: true, pid: 112 };
+    },
+    readManagedLogs: async () => {
+      calls.push('logs');
+      return { command: 'logs', ok: true, text: 'server log' };
+    }
+  };
+
+  assert.equal((await runCli(['start', '--json'], { ...options, processManager })).output.command, 'start');
+  assert.equal((await runCli(['stop', '--json'], { ...options, processManager })).output.command, 'stop');
+  assert.equal((await runCli(['restart', '--json'], { ...options, processManager })).output.command, 'restart');
+  assert.equal((await runCli(['logs', '--json'], { ...options, processManager })).output.text, 'server log');
+  assert.deepEqual(calls, ['start', 'stop', 'restart', 'logs']);
+});
+
 test('runCli returns macOS install dry-run plan without writing files', async () => {
   const options = await makeFixture();
   const result = await runCli(['install', '--dry-run', '--json'], options);

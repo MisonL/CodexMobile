@@ -77,6 +77,8 @@ export function resolveRuntimePaths(options = {}) {
     dataDir,
     stateDir: pathApi.join(dataDir, 'state'),
     runDir: pathApi.join(dataDir, 'run'),
+    pidPath: pathApi.join(dataDir, 'run', 'server.pid'),
+    processStatePath: pathApi.join(dataDir, 'run', 'process-state.json'),
     logDir,
     configPath: pathApi.join(dataDir, 'config.json'),
     relayConfigPath: pathApi.join(dataDir, 'relay.json'),
