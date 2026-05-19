@@ -50,28 +50,30 @@
 | `npm run build` | 0 | Vite build passed. |
 | `npm run space:prepare` | 0 | Generated `dist/hf-space`, 50 files. |
 | `npm run space:verify -- --url https://misonl-codexmobile-relay.hf.space --json` | 0 | Public checks passed 4/4; authenticated checks skipped without browser token or pair code. |
+| Temporary local server + Mac connector + `verifySpace({ token, chatMessage, requireMac: true, checkRealtime: true, timeoutMs: 300000 })` | 0 | Authenticated Space checks passed 8/8 after explicit local `/api/sync`; sync took 195369 ms and exposed 9 projects. |
 | `npm audit --audit-level=moderate` | 0 | Found 0 vulnerabilities. |
 | `git diff --check` | 0 | Passed. |
 
 ## 线上复验边界
 
-当前只读 Space verifier 通过，线上状态为 `relayState=pairing_required macConnected=false`。本轮没有可用 browser token 或当前 pairing code，因此没有重复执行 authenticated `/api/projects`、browser `/ws`、`/api/chat/send` 或 `/ws/realtime --check-realtime`。
+当前只读 Space verifier 通过，未连接 Mac 时线上状态为 `relayState=pairing_required macConnected=false`。随后使用临时本地 CodexMobile server、临时 `CODEXMOBILE_HOME`、固定 pairing code 和 ignored relay secret 启动 Mac connector，完成 authenticated Space verifier。
 
-带真实 Mac connector 的最终复验仍需满足以下任一条件：
+Authenticated checks:
 
-- 提供当前 Mac 本地 pairing code。
-- 提供已存在 browser device token，但不得打印或写入仓库。
+- PWA load: passed.
+- Relay status with Mac connector: passed, `macConnected=true`.
+- Unauthenticated `/api/projects`: passed, `401 pairing_required`.
+- Authenticated `/api/projects`: passed, `projects=9`.
+- Browser `/ws`: passed, `relayState=ready`.
+- `/ws/realtime --check-realtime`: passed as tunnel evidence; Mac local provider returned `voice.realtime.error` because realtime API key is not configured.
+- `/api/chat/send`: passed, returned `202` and browser WebSocket event was received.
 
-复验命令边界：
+复验脚本没有打印或写入 browser token、relay secret 或 pairing code。临时 `CODEXMOBILE_HOME` 位于 `/tmp/codexmobile-closeout-state`，验证结束后已删除。
+
+仍未把真实 realtime provider ready 作为门禁，因为本机未配置 realtime API key。如需该门禁，需配置 provider 后执行：
 
 ```bash
-npm run space:verify -- --url https://misonl-codexmobile-relay.hf.space --pair-code <pairing-code> --chat-message "CodexMobile relay closeout verification" --check-realtime --require-mac --json
-```
-
-若要把真实 realtime provider ready 作为门禁，再追加：
-
-```bash
---require-realtime-ready
+npm run space:verify -- --url https://misonl-codexmobile-relay.hf.space --token <browser-device-token> --check-realtime --require-realtime-ready --require-mac --json
 ```
 
 ## PR 状态
@@ -88,7 +90,6 @@ npm run space:verify -- --url https://misonl-codexmobile-relay.hf.space --pair-c
 本轮已完成文档口径对齐、CI 门禁定义、低风险复杂度拆分、依赖 audit 修复和本地验证闭环。当前剩余项不是隐藏失败路径，而是明确后续工作：
 
 - 推送本轮改动后确认 GitHub Actions 通过。
-- 具备 pairing code 或 browser token 后做 authenticated Space 复验。
 - 将 PR 从 draft 切换为 ready for review。
 - 分阶段拆分 `server/relay-runtime.js`、`scripts/relay-mac-client.mjs` 和 `scripts/relay-smoke.mjs`。
 - 如产品需要多台 Mac 同时在线，再设计 explicit multi-Mac routing UI/API。
