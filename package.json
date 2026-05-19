@@ -33,6 +33,7 @@
     "test:cli": "node --test tests/cli-*.test.mjs",
     "test:relay-mac": "node --test tests/relay-mac-client-*.test.mjs",
     "test:relay-runtime": "node --test tests/relay-runtime-*.test.mjs",
+    "test:server": "node --test tests/codex-runner-events.test.mjs",
     "test:space-verify": "node --test tests/space-verify.test.mjs",
     "smoke:relay:browser-fixture": "node scripts/relay-browser-fixture.mjs",
     "asr:start": "node scripts/start-asr.mjs",
