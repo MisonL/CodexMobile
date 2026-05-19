@@ -4,7 +4,7 @@
 
 本文是 HuggingFace Space 中转服务与 Mac 连接器功能的共享系统契约。
 
-生产化补充方案见 `docs/relay-production-hardening-plan.md`。部署 runbook 见 `docs/relay-deployment-runbook.md`。前端状态 UX 契约见 `docs/relay-frontend-ux-contract.md`。本文定义长期系统契约；补充文档定义 Phase 1 真实部署、限流、密钥轮换、观测、前端状态和 Phase 2 streaming 的落地门禁。
+生产化补充方案见 `docs/relay-production-hardening-plan.md`。部署 runbook 见 `docs/relay-deployment-runbook.md`。前端状态 UX 契约见 `docs/relay-frontend-ux-contract.md`。本文定义长期系统契约；补充文档定义真实部署、限流、密钥轮换、观测、前端状态、streaming 与 realtime tunnel 的落地门禁。
 
 Relay 功能是增量能力，只新增一条远程访问路径：
 
@@ -351,7 +351,7 @@ relay 模式下 `GET /api/status` 返回安全字段：
 - 连接模型包含 epoch 和迟到响应拒绝。
 - 本地直连模式不依赖 relay 启动条件。
 
-### Phase 1：最小 HTTP 与事件 relay
+### Gate 1：HTTP 与事件 relay
 
 必须通过：
 
@@ -366,9 +366,9 @@ relay 模式下 `GET /api/status` 返回安全字段：
 - 通过 Space 调用 `/api/chat/send` 返回 `202`。
 - 浏览器 `/ws` 收到来自 Mac 的状态事件。
 - Mac 重连创建新 epoch，旧响应被忽略。
-- Phase 1 不支持的二进制路径显式失败。
+- 未接入 streaming 的二进制路径显式失败。
 
-### Phase 2：二进制与媒体能力对齐
+### Gate 2：二进制与媒体能力对齐
 
 必须通过：
 
@@ -380,14 +380,14 @@ relay 模式下 `GET /api/status` 返回安全字段：
 - 断线释放 pending stream 状态。
 - `/ws/realtime` 支持带 backpressure 的全双工隧道。
 
-### Phase 3：realtime voice 与多设备加固
+### Gate 3：realtime provider 与多设备加固
 
 必须通过：
 
 - `/ws/realtime` 真实 provider 端到端延迟、断线和取消路径通过运行态复验。
 - 浏览器重连后通过 Mac API 恢复状态。
 - 多浏览器 event fanout 的作用域清晰且有文档。
-- 如支持 multi-Mac，路由必须显式，禁止 ambiguous routing。
+- 如支持 multi-Mac，路由必须显式，禁止 ambiguous routing；在显式路由 UI/API 完成前，不同 connector 必须被拒绝。
 
 ## 13. 审查证据
 
@@ -399,5 +399,5 @@ relay 模式下 `GET /api/status` 返回安全字段：
 - `/generated/*` 鉴权与 no-cache 行为。
 - Mac connector 残留连接与迟到响应竞态。
 - HuggingFace 免费层休眠与冷启动 UX。
-- realtime voice 的 Phase 1 兼容边界。
+- realtime voice 的 relay 兼容边界。
 - 本地直连回归门禁。

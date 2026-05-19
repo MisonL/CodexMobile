@@ -2,7 +2,7 @@
 
 共享中转契约定义在 `docs/relay-system-design.md`。如本文与体系设计冲突，以体系设计为准。
 
-真实部署、connector 安全边界、密钥轮换、观测和 Phase 2 streaming 门禁见 `docs/relay-production-hardening-plan.md`。部署步骤见 `docs/relay-deployment-runbook.md`，前端状态 UX 见 `docs/relay-frontend-ux-contract.md`。
+真实部署、connector 安全边界、密钥轮换、观测、streaming 和 realtime tunnel 门禁见 `docs/relay-production-hardening-plan.md`。部署步骤见 `docs/relay-deployment-runbook.md`，前端状态 UX 见 `docs/relay-frontend-ux-contract.md`。
 
 ## 1. 目标
 

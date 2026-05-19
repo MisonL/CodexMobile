@@ -143,7 +143,8 @@ npm run asr:start
 ## 6. Relay 与移动端领域约束
 
 - Relay 投递语义、请求 ID、浏览器 token、Mac connector token 和 pending request 限制不得私自改变。
-- `/ws/realtime`、语音上传、图片二进制和大文件上传在 Phase 1 relay 中不是完整支持能力，必须返回明确错误，不得伪装成功。
+- 当前 relay 已支持 `/ws/realtime` WebSocket 隧道、`/api/uploads` 与 `/api/voice/transcribe` 的 request streaming，以及 `/generated/*` 与 `/api/voice/speech` 的 response streaming。新增或未接入 streaming 的大型路径必须返回明确错误，不得伪装成功。
+- 显式 multi-Mac 路由 UI/API 仍未实现；在完成正式路由模型前，不同 `connectorInstanceId` 的并发 Mac connector 必须被拒绝，不能静默替换 active Mac。
 - 429 或限流错误必须保留 `retryAfter` 等可执行信息，前端需据此禁用相关操作。
 - Mac connector 重连必须可观测，退避策略应可测试，不得用无限快速重试压垮 Space。
 - 移动端界面应优先真实可用：iPhone 小屏、触控、PWA 安装、浅色和深色主题都需考虑。

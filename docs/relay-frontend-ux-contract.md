@@ -33,9 +33,9 @@
 | `unsupported` | 501 `relay_streaming_required`、`relay_realtime_unsupported` 或 `relay_realtime_http_upgrade_required` | 中转暂不支持 | 显示功能级提示，不清除登录态 | 否 |
 | `disconnected` | 浏览器 `/ws` 断开且 HTTP status 不可用 | 已断开 | 保留页面状态，禁用新请求 | 是 |
 
-## 3. Phase 1 功能开关
+## 3. Relay 功能开关
 
-Relay Phase 1 允许：
+Relay 允许：
 
 - 加载 PWA。
 - 配对。

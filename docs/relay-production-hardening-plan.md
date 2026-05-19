@@ -2,20 +2,20 @@
 
 ## 1. 目标与非目标
 
-本文补充 `docs/relay-system-design.md` 的生产化决策，用于把 Phase 1 relay 从“可用 smoke”推进到“可控试运行”。
+本文补充 `docs/relay-system-design.md` 的生产化决策，用于把 relay 从“可用 smoke”推进到“可控试运行”。历史上 Phase 1 只覆盖小体积 HTTP 与普通 `/ws`，当前分支已继续实现 streaming、realtime tunnel、secret rotation 和 multi-Mac 歧义防护。
 
 目标：
 
-- 明确 Phase 1 真实部署验收标准。
+- 明确真实部署验收标准。
 - 补齐限流、防暴力、密钥轮换、观测和故障分级。
-- 定义 Phase 2 streaming 的最小安全协议，避免重新引入无界 buffering。
+- 固化已实现的 streaming 与 realtime tunnel 协议，避免重新引入无界 buffering。
 - 保持 Mac 本地服务作为业务事实源。
 
 非目标：
 
 - 不把 HuggingFace Space 变成 Codex 执行环境。
-- 不在 Phase 1 支持 upload、voice、speech、generated asset 或 realtime voice 全量等价。
-- 不引入数据库、队列或多 Mac 路由，除非后续阶段明确需要。
+- 不把未接入 streaming 的其他大型响应伪装为已支持。
+- 不引入数据库、队列或显式 multi-Mac 路由，除非后续阶段明确需要。
 
 ## 2. 阶段门禁
 
@@ -221,11 +221,11 @@ Space 不应信任浏览器传来的 `host`、`x-forwarded-host` 或 query token
 - `mac.local_status_changed`
 - `mac.heartbeat_missed`
 
-## 5. Phase 2 Streaming 设计
+## 5. Streaming 与 realtime 设计
 
 ### 5.1 适用路径
 
-Phase 2 只在以下路径启用 streaming：
+当前分支已在以下路径启用 streaming：
 
 - `POST /api/uploads`
 - `POST /api/voice/transcribe`
@@ -233,7 +233,7 @@ Phase 2 只在以下路径启用 streaming：
 - `GET /generated/*`
 - 后续明确需要的大响应 API
 
-`/ws/realtime` 仍单独作为 Phase 3，不能用普通 HTTP chunk 协议伪装完成。
+`/ws/realtime` 使用独立 WebSocket tunnel，不使用普通 HTTP chunk 协议伪装完成。
 
 ### 5.2 帧协议
 
@@ -342,8 +342,8 @@ Phase 2 只在以下路径启用 streaming：
 | 决策 | 结论 | 理由 | 代价 |
 | --- | --- | --- | --- |
 | 事实源 | Mac 本地服务 | 保持 token、会话、Codex 执行一致 | Space 依赖 Mac 在线 |
-| Phase 1 body | small-body-only | 快速验证 HTTP 与事件链路 | 上传、语音、图片暂不等价 |
+| Relay body | small body + selected streaming | 覆盖上传、语音和 generated asset 主路径 | 未接入 streaming 的其他大型响应仍需显式失败 |
 | Space 存储 | 无持久化 | 适配 HF 免费层与安全边界 | 重启后需 Mac 复验 token |
 | connector 转发 | localhost HTTP | patch 小，复用现有 handler | 需要双进程运行 |
 | token cache | hash key + 短 TTL | 降低内存泄露影响 | 每次重启需复验 |
-| streaming | Phase 2 chunk 协议 | 避免 base64 大包 OOM | 实现复杂度后移 |
+| streaming | chunk 协议 | 避免 base64 大包 OOM | 实现复杂度集中在 relay 与 connector |

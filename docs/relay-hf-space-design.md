@@ -2,7 +2,7 @@
 
 共享中转契约定义在 `docs/relay-system-design.md`。如本文与体系设计冲突，以体系设计为准。
 
-真实部署、限流、密钥轮换、观测和 Phase 2 streaming 门禁见 `docs/relay-production-hardening-plan.md`。部署步骤见 `docs/relay-deployment-runbook.md`，前端状态 UX 见 `docs/relay-frontend-ux-contract.md`。
+真实部署、限流、密钥轮换、观测、streaming 和 realtime tunnel 门禁见 `docs/relay-production-hardening-plan.md`。部署步骤见 `docs/relay-deployment-runbook.md`，前端状态 UX 见 `docs/relay-frontend-ux-contract.md`。
 
 ## 1. 目标
 
@@ -481,22 +481,19 @@ Body limits：
 
 ## 16. 阶段边界
 
-Phase 1：
+当前已实现：
 
 - 浏览器 HTTP 转发。
 - 浏览器 `/ws` 事件分发。
 - Mac connector 单 active 连接。
 - 内存鉴权与指标。
 - 现有本地直连模式保持不变。
-
-Phase 2：
-
 - `/ws/realtime` voice relay。
-- 大型 generated asset 使用流式传输，避免 buffering。
+- `/api/uploads`、`/api/voice/transcribe`、`/api/voice/speech` 和 `/generated/*` 使用流式传输，避免 buffering。
 - 如启用付费持久化存储，可选持久化验证缓存。
 
-Phase 3：
+后续产品能力：
 
-- Multi-Mac support。
+- Explicit multi-Mac support。
 - Device management UI。
 - relay 侧审计视图。
