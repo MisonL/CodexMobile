@@ -4,6 +4,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { LAUNCH_AGENT_LABEL } from './paths.mjs';
+import {
+  buildLaunchctlCommands,
+  buildLaunchctlNotes,
+  currentUserDomain,
+  isAlreadyBootstrapped,
+  isNotBootstrapped,
+  serviceTarget
+} from './launchctl-policy.mjs';
 
 const COMMAND_TIMEOUT_MS = 5000;
 const DEFAULT_CLI_PATH = fileURLToPath(new URL('../bin/codexmobile.mjs', import.meta.url));
@@ -44,13 +52,6 @@ function buildLaunchAgentEnv(paths) {
   };
 }
 
-function buildLaunchctlCommands(paths) {
-  return [
-    `launchctl bootstrap gui/$(id -u) ${paths.launchAgentPath}`,
-    `launchctl kickstart -k gui/$(id -u)/${LAUNCH_AGENT_LABEL}`
-  ];
-}
-
 function requireMacPaths(paths) {
   if (!paths) {
     throw new Error('paths are required.');
@@ -59,17 +60,6 @@ function requireMacPaths(paths) {
     throw new Error('macOS LaunchAgent commands are only available on darwin.');
   }
   return paths;
-}
-
-function currentUserDomain() {
-  if (typeof process.getuid !== 'function') {
-    throw new Error('process.getuid is required for macOS LaunchAgent commands.');
-  }
-  return `gui/${process.getuid()}`;
-}
-
-function serviceTarget() {
-  return `${currentUserDomain()}/${LAUNCH_AGENT_LABEL}`;
 }
 
 function execFilePromise(execFile, command, args) {
@@ -84,6 +74,28 @@ function execFilePromise(execFile, command, args) {
       resolve({ stdout: String(stdout || ''), stderr: String(stderr || '') });
     });
   });
+}
+
+async function bootoutLaunchAgent(execFile) {
+  try {
+    await execFilePromise(execFile, 'launchctl', ['bootout', serviceTarget()]);
+    return true;
+  } catch (error) {
+    if (isNotBootstrapped(error)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function bootstrapLaunchAgent(execFile, launchAgentPath) {
+  try {
+    await execFilePromise(execFile, 'launchctl', ['bootstrap', currentUserDomain(), launchAgentPath]);
+  } catch (error) {
+    if (!isAlreadyBootstrapped(error)) {
+      throw error;
+    }
+  }
 }
 
 async function pathExists(fileSystem, filePath) {
@@ -174,7 +186,8 @@ export function buildMacInstallPlan(options = {}) {
         content
       }
     ],
-    wouldRun: buildLaunchctlCommands(paths)
+    wouldRun: buildLaunchctlCommands(paths),
+    notes: buildLaunchctlNotes()
   };
 }
 
@@ -187,7 +200,8 @@ export async function installMacLaunchAgent(options = {}) {
   await Promise.all(plan.wouldCreateDirs.map((dir) => fileSystem.mkdir(dir, { recursive: true })));
   await fileSystem.writeFile(paths.launchAgentPath, plist, { encoding: 'utf8', mode: 0o644 });
   await execFilePromise(execFile, 'plutil', ['-lint', paths.launchAgentPath]);
-  await execFilePromise(execFile, 'launchctl', ['bootstrap', currentUserDomain(), paths.launchAgentPath]);
+  await bootoutLaunchAgent(execFile);
+  await bootstrapLaunchAgent(execFile, paths.launchAgentPath);
   await execFilePromise(execFile, 'launchctl', ['kickstart', '-k', serviceTarget()]);
 
   return {
@@ -205,7 +219,8 @@ export async function enableMacLaunchAgent(options = {}) {
   const paths = requireMacPaths(options.paths);
   const { execFile } = launchAgentOptions(options);
 
-  await execFilePromise(execFile, 'launchctl', ['bootstrap', currentUserDomain(), paths.launchAgentPath]);
+  await bootoutLaunchAgent(execFile);
+  await bootstrapLaunchAgent(execFile, paths.launchAgentPath);
   await execFilePromise(execFile, 'launchctl', ['kickstart', '-k', serviceTarget()]);
   return {
     command: 'enable',
@@ -267,12 +282,7 @@ export async function uninstallMacLaunchAgent(options = {}) {
     };
   }
 
-  let unloaded = true;
-  try {
-    await execFilePromise(execFile, 'launchctl', ['bootout', serviceTarget()]);
-  } catch {
-    unloaded = false;
-  }
+  const unloaded = await bootoutLaunchAgent(execFile);
   await fileSystem.rm(paths.launchAgentPath, { force: true });
   if (options.removeData) {
     await fileSystem.rm(paths.dataDir, { recursive: true, force: true });

@@ -154,16 +154,23 @@ export async function startManagedServer(options = {}) {
   const spawn = options.spawn || defaultSpawn;
   const nodePath = options.nodePath || process.execPath;
   const cliPath = options.cliPath || DEFAULT_CLI_PATH;
-  const existing = await collectManagedProcessStatus(options);
+  const state = await readManagedState({ ...options, paths, fs: fileSystem });
+  const existing = await collectManagedProcessStatus({ ...options, paths, fs: fileSystem });
 
   if (existing.managed && existing.running) {
-    return {
-      command: 'start',
-      ok: true,
-      started: false,
-      pid: existing.pid,
-      detail: 'Managed CodexMobile server is already running.'
-    };
+    if (!isStoppableState(state)) {
+      await removeManagedState({ paths, fs: fileSystem });
+    } else if (await isManagedProcessAlive(state, { ...options, paths })) {
+      return {
+        command: 'start',
+        ok: true,
+        started: false,
+        pid: existing.pid,
+        detail: 'Managed CodexMobile server is already running.'
+      };
+    } else {
+      await removeManagedState({ paths, fs: fileSystem });
+    }
   }
 
   await fileSystem.mkdir(paths.logDir, { recursive: true });

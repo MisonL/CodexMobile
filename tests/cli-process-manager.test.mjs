@@ -98,6 +98,7 @@ test('startManagedServer does not spawn a duplicate managed process', async () =
   const result = await startManagedServer({
     paths,
     isProcessRunning: (pid) => pid === 222,
+    isManagedProcessAlive: () => true,
     spawn: (...args) => {
       spawnCalls.push(args);
       return { pid: 333, unref() {} };

@@ -39,6 +39,39 @@ function fakeExecFile(calls) {
   };
 }
 
+function fakeExecFileWithLoadedService(calls) {
+  return (command, args, options, callback) => {
+    calls.push({ command, args, options });
+    if (command === 'launchctl' && args[0] === 'bootstrap') {
+      callback(Object.assign(new Error('Bootstrap failed: 5: Input/output error'), { code: 5 }), '', 'service already loaded');
+      return;
+    }
+    callback(null, 'ok\n', '');
+  };
+}
+
+function fakeExecFileWithMissingService(calls) {
+  return (command, args, options, callback) => {
+    calls.push({ command, args, options });
+    if (command === 'launchctl' && args[0] === 'bootout') {
+      callback(Object.assign(new Error('Boot-out failed: 3: No such process'), { code: 3 }), '', 'No such process');
+      return;
+    }
+    callback(null, 'ok\n', '');
+  };
+}
+
+function fakeExecFileWithBootoutFailure(calls) {
+  return (command, args, options, callback) => {
+    calls.push({ command, args, options });
+    if (command === 'launchctl' && args[0] === 'bootout') {
+      callback(Object.assign(new Error('Boot-out failed: 5: Input/output error'), { code: 5 }), '', 'Input/output error');
+      return;
+    }
+    callback(null, 'ok\n', '');
+  };
+}
+
 test('buildLaunchAgentPlist emits a macOS user agent for the CLI serve command', () => {
   const plist = buildLaunchAgentPlist({
     label: 'com.codexmobile.agent',
@@ -81,6 +114,12 @@ test('buildMacInstallPlan returns dry-run write actions without creating LaunchA
   assert.equal(plan.wouldWrite.length, 1);
   assert.equal(plan.wouldWrite[0].path, launchAgentPath);
   assert.match(plan.wouldWrite[0].content, /<string>serve<\/string>/);
+  assert.deepEqual(plan.wouldRun, [
+    'launchctl bootout gui/$(id -u)/com.codexmobile.agent',
+    `launchctl bootstrap gui/$(id -u) ${launchAgentPath}`,
+    'launchctl kickstart -k gui/$(id -u)/com.codexmobile.agent'
+  ]);
+  assert.match(plan.notes[0], /ignores only not-loaded or not-found/);
 
   await assert.rejects(
     fs.stat(launchAgentPath),
@@ -107,8 +146,75 @@ test('installMacLaunchAgent writes plist, lints it, and bootstraps user agent', 
     calls.map((call) => [call.command, ...call.args]),
     [
       ['plutil', '-lint', paths.launchAgentPath],
+      ['launchctl', 'bootout', `gui/${process.getuid()}/com.codexmobile.agent`],
       ['launchctl', 'bootstrap', `gui/${process.getuid()}`, paths.launchAgentPath],
       ['launchctl', 'kickstart', '-k', `gui/${process.getuid()}/com.codexmobile.agent`]
+    ]
+  );
+});
+
+test('installMacLaunchAgent is idempotent when the user agent is already loaded', async () => {
+  const { paths } = await makeTempPaths();
+  const calls = [];
+  const result = await installMacLaunchAgent({
+    paths,
+    nodePath: '/usr/local/bin/node',
+    cliPath: '/repo/bin/codexmobile.mjs',
+    execFile: fakeExecFileWithLoadedService(calls)
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    calls.map((call) => [call.command, ...call.args]),
+    [
+      ['plutil', '-lint', paths.launchAgentPath],
+      ['launchctl', 'bootout', `gui/${process.getuid()}/com.codexmobile.agent`],
+      ['launchctl', 'bootstrap', `gui/${process.getuid()}`, paths.launchAgentPath],
+      ['launchctl', 'kickstart', '-k', `gui/${process.getuid()}/com.codexmobile.agent`]
+    ]
+  );
+});
+
+test('installMacLaunchAgent ignores missing bootout target and continues bootstrap', async () => {
+  const { paths } = await makeTempPaths();
+  const calls = [];
+  const result = await installMacLaunchAgent({
+    paths,
+    nodePath: '/usr/local/bin/node',
+    cliPath: '/repo/bin/codexmobile.mjs',
+    execFile: fakeExecFileWithMissingService(calls)
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    calls.map((call) => [call.command, ...call.args]),
+    [
+      ['plutil', '-lint', paths.launchAgentPath],
+      ['launchctl', 'bootout', `gui/${process.getuid()}/com.codexmobile.agent`],
+      ['launchctl', 'bootstrap', `gui/${process.getuid()}`, paths.launchAgentPath],
+      ['launchctl', 'kickstart', '-k', `gui/${process.getuid()}/com.codexmobile.agent`]
+    ]
+  );
+});
+
+test('installMacLaunchAgent surfaces unexpected bootout failures', async () => {
+  const { paths } = await makeTempPaths();
+  const calls = [];
+
+  await assert.rejects(
+    installMacLaunchAgent({
+      paths,
+      nodePath: '/usr/local/bin/node',
+      cliPath: '/repo/bin/codexmobile.mjs',
+      execFile: fakeExecFileWithBootoutFailure(calls)
+    }),
+    /Input\/output error/
+  );
+  assert.deepEqual(
+    calls.map((call) => [call.command, ...call.args]),
+    [
+      ['plutil', '-lint', paths.launchAgentPath],
+      ['launchctl', 'bootout', `gui/${process.getuid()}/com.codexmobile.agent`]
     ]
   );
 });
@@ -164,10 +270,27 @@ test('enable, disable, and status call launchctl with stable label', async () =>
   assert.deepEqual(
     calls.map((call) => [call.command, ...call.args]),
     [
+      ['launchctl', 'bootout', `gui/${process.getuid()}/com.codexmobile.agent`],
       ['launchctl', 'bootstrap', `gui/${process.getuid()}`, paths.launchAgentPath],
       ['launchctl', 'kickstart', '-k', `gui/${process.getuid()}/com.codexmobile.agent`],
       ['launchctl', 'bootout', `gui/${process.getuid()}/com.codexmobile.agent`],
       ['launchctl', 'print', `gui/${process.getuid()}/com.codexmobile.agent`]
+    ]
+  );
+});
+
+test('enableMacLaunchAgent is idempotent when the user agent is already loaded', async () => {
+  const { paths } = await makeTempPaths();
+  const calls = [];
+  const result = await enableMacLaunchAgent({ paths, execFile: fakeExecFileWithLoadedService(calls) });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    calls.map((call) => [call.command, ...call.args]),
+    [
+      ['launchctl', 'bootout', `gui/${process.getuid()}/com.codexmobile.agent`],
+      ['launchctl', 'bootstrap', `gui/${process.getuid()}`, paths.launchAgentPath],
+      ['launchctl', 'kickstart', '-k', `gui/${process.getuid()}/com.codexmobile.agent`]
     ]
   );
 });
