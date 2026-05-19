@@ -294,7 +294,20 @@ Space 不应信任浏览器传来的 `host`、`x-forwarded-host` 或 query token
 - 在 Space 落盘缓存 upload、voice 或 generated asset。
 - 对 generated asset 取消鉴权。
 
-## 6. 真实部署验收记录模板
+## 6. 后续产品级任务边界
+
+以下项目不作为当前 relay Phase 1 的隐藏失败项处理。进入多人、长期公网或 hostile network 使用前，必须拆成独立任务并分别验收。
+
+| 任务 | 当前边界 | 必要设计 | 验证口径 |
+| --- | --- | --- | --- |
+| explicit multi-Mac routing | 当前只安全拒绝不同 `connectorInstanceId` 的并发 Mac connector。 | route id、浏览器选择 UI/API、token 与 route 绑定、连接抢占规则、歧义状态文案。 | 两台 Mac 同时在线时，浏览器能显式选择目标；未选择目标的请求不随机转发；错误路径返回稳定 code。 |
+| per-token request cap | 当前只有 pairing、token validation miss、单浏览器 pending 和全局 pending 限制。 | 按 browser token hash 计数的请求速率、并发上限、route 例外、`retryAfter` 语义。 | 同一 token 超限返回 `429 relay_rate_limited`；其他 token 不受牵连；前端只禁用对应操作。 |
+| 长期审计日志 | 当前只要求结构化日志和敏感字段禁止出现。 | 日志保留周期、字段 schema、requestId 关联、脱敏扫描、导出与删除策略。 | 日志样本通过 secret/token/body/path 扫描；能按 requestId 追踪失败；删除策略可演练。 |
+| 指标和告警导出 | 当前只在 `/api/status` 暴露安全 counters。 | metrics endpoint 或平台适配、失败率阈值、connector offline 告警、rate-limit 告警。 | 人为断开 Mac、打满限流、制造超时后，指标变化和告警触发可复现。 |
+| 公网多人安全加固 | 当前定位为可信网络和受控试运行。 | proxy trust 策略、origin allowlist、CSRF/Origin 检查、token rotation、abuse response。 | 非可信 `x-forwarded-for` 不影响限流 key；跨 origin 请求被拒绝；secret rotation 演练不泄露 token。 |
+| realtime provider-ready | 当前可证明 `/ws/realtime` tunnel 到 Mac。 | provider API key 配置、模型/voice 选择、ready/error 语义、成本和禁用开关。 | `--require-realtime-ready` 收到 `voice.realtime.ready`；缺 key 时必须显式失败，不伪装为 ready。 |
+
+## 7. 真实部署验收记录模板
 
 具体部署步骤、回滚和排障见 `docs/relay-deployment-runbook.md`。每次 Phase 1B/1C 试运行记录到 `docs/reviews/`：
 
@@ -337,7 +350,7 @@ Space 不应信任浏览器传来的 `host`、`x-forwarded-host` 或 query token
 - Follow-up:
 ```
 
-## 7. ADR 摘要
+## 8. ADR 摘要
 
 | 决策 | 结论 | 理由 | 代价 |
 | --- | --- | --- | --- |
