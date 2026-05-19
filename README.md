@@ -131,6 +131,26 @@ node bin/codexmobile.mjs relay-config \
 
 该配置写入用户级 `relay.json`，`relay-config --json` 和 `status --json` 只展示脱敏后的 secret。`npm run relay:mac` 会优先读取环境变量；环境变量未设置时，回退读取这份用户级配置。
 
+### CLI 验证范围与跨平台边界
+
+源码检出目录内使用 `node bin/codexmobile.mjs ...`，发布包使用 `npx codexmobile ...`。CLI 状态目录、日志目录和 `relay.json` 均为用户级路径；实际路径以 `node bin/codexmobile.mjs status --json` 返回的 `paths` 为准。
+
+当前自动化覆盖：
+
+- `npm run test:cli`：CLI 路由、用户级路径解析、macOS LaunchAgent plist、进程启停保护、日志脱敏、relay config 读写与脱敏。
+- `npm run build`：前端 PWA production build。
+- `npm run smoke`：本机 `/api/status` 可访问性。
+- `npm run smoke:relay`：本地 relay server、真实 Mac connector 进程、离线/限流/重连/streaming/realtime tunnel smoke。
+- `npm run test:space-verify`：Space verifier 的离线单元测试，不等同于真实 HuggingFace Space 部署验证。
+
+当前平台边界：
+
+- macOS：已实现用户级 LaunchAgent，显式 `install` 才写入 `~/Library/LaunchAgents/com.codexmobile.agent.plist`。
+- Windows：已覆盖路径解析和子进程 PATH 去重；尚未实现 Task Scheduler 自启安装。
+- Linux：已覆盖 XDG 用户数据路径解析；尚未实现 user systemd 自启安装。
+
+以下仍需真实环境复验，不能由本地自动化结果代替：iPhone PWA 安装、移动端 Safari 麦克风权限、手机经 Tailscale 访问、本机重启后 macOS 登录自启、真实 HuggingFace Space authenticated connector、真实 Codex 子进程完整对话链路。
+
 ## HuggingFace Space 中转模式
 
 中转模式用于手机无法直连 Mac 私有网络时访问 CodexMobile。公网入口运行在 HuggingFace Docker Space，Mac 上运行 connector 主动连到 Space，再由 Space 转发浏览器请求到 Mac 本地服务。
@@ -240,7 +260,7 @@ npm run start:env
 - `CODEXMOBILE_PUBLIC_URL`：手机访问用的公开私网地址
 - `CODEXMOBILE_PAIRING_CODE`：可选固定 6 位配对码；不设置则启动时随机生成
 - `CODEX_HOME`：Codex 配置目录，默认 `~/.codex`
-- `CODEXMOBILE_HOME`：CodexMobile 本地状态目录，默认 `.codexmobile/state`
+- `CODEXMOBILE_HOME`：覆盖 CLI 和服务的本地状态目录；CLI 未设置时按平台选择用户级目录，例如 macOS `~/Library/Application Support/CodexMobile`
 - `CODEXMOBILE_FEISHU_APP_ID` / `CODEXMOBILE_FEISHU_APP_SECRET`：可选飞书应用凭证，用于 `lark-cli` 文档集成
 - `LARK_APP_ID` / `LARK_APP_SECRET`：可选飞书凭证别名，供 `lark-cli` 和 Codex 子进程读取
 - `CLIPROXYAPI_CONFIG`：CLIProxyAPI 配置文件路径
