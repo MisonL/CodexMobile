@@ -52,16 +52,18 @@
 | `npm run space:verify -- --url https://misonl-codexmobile-relay.hf.space --json` | 0 | Public checks passed 4/4; authenticated checks skipped without browser token or pair code. |
 | `git diff --check` | 0 | Passed. |
 
-## 当前 PR 与 CI 边界
+## 当前 PR 与 CI 状态
 
 - PR: `https://github.com/RNG2018-mlxg/CodexMobile/pull/4`
-- Remote PR state before pushing this local follow-up: `OPEN`
+- Remote PR state after pushing this follow-up: `OPEN`
 - Draft: `false`
 - Merge state: `CLEAN`
 - Upstream `statusCheckRollup`: empty
-- Latest fork CI observed before this local follow-up push: `Relay CI` success for head `1e1f7f10162a279837184cd03f9bebba60b471e9`
+- Latest pushed head: `62a0db079ddd9fc74c72b6eebfbfb73c103db8f9`
+- Latest fork CI: `Relay CI` run `26072308043`, success
+- CI URL: `https://github.com/MisonL/CodexMobile/actions/runs/26072308043`
 
-本地 follow-up 还需要在最终提交并 push 后重新观察 fork CI；当前记录中的 PR/CI 状态只说明远端已有 head，不代表本地未推送改动已被 GitHub 验证。
+上游 PR 仍未返回 `statusCheckRollup`，因此当前以 fork `Relay CI` run 和本地验证记录作为评审证据。
 
 ## 外部门禁
 
