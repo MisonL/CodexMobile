@@ -103,6 +103,58 @@ test('runCli routes lifecycle commands through injected process manager helpers'
   assert.deepEqual(calls, ['start', 'stop', 'restart', 'logs']);
 });
 
+test('runCli routes LaunchAgent install and uninstall commands through injected helpers', async () => {
+  const options = await makeFixture();
+  const calls = [];
+  const launchAgent = {
+    buildMacInstallPlan: () => {
+      calls.push('dry-run');
+      return { command: 'install', ok: true, dryRun: true };
+    },
+    installMacLaunchAgent: async () => {
+      calls.push('install');
+      return { command: 'install', ok: true, installed: true };
+    },
+    uninstallMacLaunchAgent: async (helperOptions) => {
+      calls.push({
+        command: 'uninstall',
+        removeData: helperOptions.removeData,
+        confirmRemoveData: helperOptions.confirmRemoveData
+      });
+      return { command: 'uninstall', ok: true, uninstalled: true };
+    },
+    enableMacLaunchAgent: async () => {
+      calls.push('enable');
+      return { command: 'enable', ok: true, enabled: true };
+    },
+    disableMacLaunchAgent: async () => {
+      calls.push('disable');
+      return { command: 'disable', ok: true, disabled: true };
+    }
+  };
+
+  assert.equal((await runCli(['install', '--dry-run', '--json'], { ...options, launchAgent })).output.dryRun, true);
+  assert.equal((await runCli(['install', '--json'], { ...options, launchAgent })).output.installed, true);
+  assert.equal((await runCli(['uninstall', '--json'], { ...options, launchAgent })).output.uninstalled, true);
+  assert.equal(
+    (await runCli(['uninstall', '--remove-data', '--confirm-remove-data', '--json'], {
+      ...options,
+      launchAgent
+    })).output.uninstalled,
+    true
+  );
+  assert.equal((await runCli(['enable', '--json'], { ...options, launchAgent })).output.enabled, true);
+  assert.equal((await runCli(['disable', '--json'], { ...options, launchAgent })).output.disabled, true);
+  assert.deepEqual(calls, [
+    'dry-run',
+    'install',
+    { command: 'uninstall', removeData: false, confirmRemoveData: false },
+    { command: 'uninstall', removeData: true, confirmRemoveData: true },
+    'enable',
+    'disable'
+  ]);
+});
+
 test('runCli returns macOS install dry-run plan without writing files', async () => {
   const options = await makeFixture();
   const result = await runCli(['install', '--dry-run', '--json'], options);

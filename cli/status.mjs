@@ -5,6 +5,7 @@ import os from 'node:os';
 
 import { resolveRuntimePaths } from './paths.mjs';
 import { collectManagedProcessStatus } from './process-manager.mjs';
+import { getMacLaunchAgentStatus } from './launch-agent.mjs';
 
 const MIN_NODE_MAJOR = 20;
 const DEFAULT_HTTP_PORT = 3321;
@@ -129,19 +130,23 @@ export async function collectStatusReport(options = {}) {
   const paths = resolveRuntimePaths(options);
   const fileSystem = options.fs || fs;
   const processStatus = await collectManagedProcessStatus({ ...options, paths });
-  const launchAgentInstalled = paths.launchAgentPath
-    ? await pathExists(fileSystem, paths.launchAgentPath)
-    : false;
+  let launchAgent = {
+    supported: paths.platform === 'darwin',
+    installed: paths.launchAgentPath
+      ? await pathExists(fileSystem, paths.launchAgentPath)
+      : false,
+    loaded: false,
+    path: paths.launchAgentPath || null
+  };
+  if (paths.platform === 'darwin') {
+    launchAgent = await getMacLaunchAgentStatus({ ...options, paths });
+  }
 
   return {
     command: 'status',
     ok: true,
     process: processStatus,
-    launchAgent: {
-      supported: paths.platform === 'darwin',
-      installed: launchAgentInstalled,
-      path: paths.launchAgentPath || null
-    },
+    launchAgent,
     urls: {
       localHttp: 'http://127.0.0.1:3321',
       localHttps: 'https://127.0.0.1:3443'

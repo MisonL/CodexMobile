@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 
-import { buildMacInstallPlan } from './launch-agent.mjs';
+import * as defaultLaunchAgent from './launch-agent.mjs';
 import { resolveRuntimePaths } from './paths.mjs';
 import * as defaultProcessManager from './process-manager.mjs';
 import {
@@ -37,7 +37,7 @@ function emit(result, options, json) {
     writeOutput(options, `${result.output.command}: ok\n`);
     return result;
   }
-  writeError(options, `${result.error}\n`);
+  writeError(options, `${result.error || result.output?.error || 'Command failed.'}\n`);
   return result;
 }
 
@@ -89,6 +89,10 @@ function processOptions(options) {
   };
 }
 
+function launchAgent(options) {
+  return options.launchAgent || defaultLaunchAgent;
+}
+
 async function runStart(options) {
   return {
     code: 0,
@@ -119,18 +123,62 @@ async function runLogs(options) {
   };
 }
 
-function runInstall(args, options) {
+async function runInstall(args, options) {
+  const paths = resolveRuntimePaths(options);
+  const helperOptions = {
+    ...options,
+    paths,
+    nodePath: options.nodePath || process.execPath,
+    cliPath: options.cliPath || DEFAULT_CLI_PATH
+  };
   if (!hasFlag(args, '--dry-run')) {
-    return errorResult('install currently requires --dry-run.');
+    const output = await launchAgent(options).installMacLaunchAgent(helperOptions);
+    return {
+      code: output.ok === false ? 1 : 0,
+      output
+    };
   }
   return {
     code: 0,
-    output: buildMacInstallPlan({
-      paths: resolveRuntimePaths(options),
-      nodePath: options.nodePath || process.execPath,
-      cliPath: options.cliPath || DEFAULT_CLI_PATH,
+    output: launchAgent(options).buildMacInstallPlan({
+      ...helperOptions,
       dryRun: true
     })
+  };
+}
+
+async function runUninstall(args, options) {
+  const output = await launchAgent(options).uninstallMacLaunchAgent({
+    ...options,
+    paths: resolveRuntimePaths(options),
+    removeData: hasFlag(args, '--remove-data'),
+    confirmRemoveData: hasFlag(args, '--confirm-remove-data')
+  });
+  return {
+    code: output.ok === false ? 1 : 0,
+    output
+  };
+}
+
+async function runEnable(options) {
+  const output = await launchAgent(options).enableMacLaunchAgent({
+    ...options,
+    paths: resolveRuntimePaths(options)
+  });
+  return {
+    code: output.ok === false ? 1 : 0,
+    output
+  };
+}
+
+async function runDisable(options) {
+  const output = await launchAgent(options).disableMacLaunchAgent({
+    ...options,
+    paths: resolveRuntimePaths(options)
+  });
+  return {
+    code: output.ok === false ? 1 : 0,
+    output
   };
 }
 
@@ -140,7 +188,20 @@ function runHelp() {
     output: {
       command: 'help',
       ok: true,
-      commands: ['doctor', 'status', 'install --dry-run', 'start', 'stop', 'restart', 'logs', 'serve']
+      commands: [
+        'doctor',
+        'status',
+        'install',
+        'install --dry-run',
+        'uninstall',
+        'enable',
+        'disable',
+        'start',
+        'stop',
+        'restart',
+        'logs',
+        'serve'
+      ]
     }
   };
 }
@@ -154,6 +215,15 @@ async function routeCommand(command, args, options) {
   }
   if (command === 'install') {
     return runInstall(args, options);
+  }
+  if (command === 'uninstall') {
+    return runUninstall(args, options);
+  }
+  if (command === 'enable') {
+    return runEnable(options);
+  }
+  if (command === 'disable') {
+    return runDisable(options);
   }
   if (command === 'start') {
     return runStart(options);

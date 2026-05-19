@@ -1,6 +1,12 @@
+import { execFile as defaultExecFile } from 'node:child_process';
+import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { LAUNCH_AGENT_LABEL } from './paths.mjs';
+
+const COMMAND_TIMEOUT_MS = 5000;
+const DEFAULT_CLI_PATH = fileURLToPath(new URL('../bin/codexmobile.mjs', import.meta.url));
 
 function xmlEscape(value) {
   return String(value)
@@ -45,6 +51,62 @@ function buildLaunchctlCommands(paths) {
   ];
 }
 
+function requireMacPaths(paths) {
+  if (!paths) {
+    throw new Error('paths are required.');
+  }
+  if (paths.platform !== 'darwin') {
+    throw new Error('macOS LaunchAgent commands are only available on darwin.');
+  }
+  return paths;
+}
+
+function currentUserDomain() {
+  if (typeof process.getuid !== 'function') {
+    throw new Error('process.getuid is required for macOS LaunchAgent commands.');
+  }
+  return `gui/${process.getuid()}`;
+}
+
+function serviceTarget() {
+  return `${currentUserDomain()}/${LAUNCH_AGENT_LABEL}`;
+}
+
+function execFilePromise(execFile, command, args) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, { timeout: COMMAND_TIMEOUT_MS }, (error, stdout, stderr) => {
+      if (error) {
+        error.stdout = stdout;
+        error.stderr = stderr;
+        reject(error);
+        return;
+      }
+      resolve({ stdout: String(stdout || ''), stderr: String(stderr || '') });
+    });
+  });
+}
+
+async function pathExists(fileSystem, filePath) {
+  try {
+    await fileSystem.stat(filePath);
+    return true;
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function launchAgentOptions(options = {}) {
+  return {
+    fileSystem: options.fs || fs,
+    execFile: options.execFile || defaultExecFile,
+    nodePath: options.nodePath || process.execPath,
+    cliPath: options.cliPath || DEFAULT_CLI_PATH
+  };
+}
+
 export function buildLaunchAgentPlist(options = {}) {
   const label = options.label || LAUNCH_AGENT_LABEL;
   const args = [
@@ -81,16 +143,7 @@ ${stringEntry(errPath)}
 }
 
 export function buildMacInstallPlan(options = {}) {
-  const paths = options.paths;
-  if (!paths) {
-    throw new Error('paths are required to build install plan.');
-  }
-  if (paths.platform !== 'darwin') {
-    throw new Error('macOS LaunchAgent install plan is only available on darwin.');
-  }
-  if (!options.dryRun) {
-    throw new Error('install currently requires --dry-run.');
-  }
+  const paths = requireMacPaths(options.paths);
 
   const content = buildLaunchAgentPlist({
     label: LAUNCH_AGENT_LABEL,
@@ -105,7 +158,7 @@ export function buildMacInstallPlan(options = {}) {
     command: 'install',
     platform: 'darwin',
     label: LAUNCH_AGENT_LABEL,
-    dryRun: true,
+    dryRun: Boolean(options.dryRun),
     launchAgentPath: paths.launchAgentPath,
     dataDir: paths.dataDir,
     logDir: paths.logDir,
@@ -122,5 +175,116 @@ export function buildMacInstallPlan(options = {}) {
       }
     ],
     wouldRun: buildLaunchctlCommands(paths)
+  };
+}
+
+export async function installMacLaunchAgent(options = {}) {
+  const paths = requireMacPaths(options.paths);
+  const { fileSystem, execFile, nodePath, cliPath } = launchAgentOptions(options);
+  const plan = buildMacInstallPlan({ paths, nodePath, cliPath, dryRun: false });
+  const plist = plan.wouldWrite[0].content;
+
+  await Promise.all(plan.wouldCreateDirs.map((dir) => fileSystem.mkdir(dir, { recursive: true })));
+  await fileSystem.writeFile(paths.launchAgentPath, plist, { encoding: 'utf8', mode: 0o644 });
+  await execFilePromise(execFile, 'plutil', ['-lint', paths.launchAgentPath]);
+  await execFilePromise(execFile, 'launchctl', ['bootstrap', currentUserDomain(), paths.launchAgentPath]);
+  await execFilePromise(execFile, 'launchctl', ['kickstart', '-k', serviceTarget()]);
+
+  return {
+    command: 'install',
+    ok: true,
+    installed: true,
+    label: LAUNCH_AGENT_LABEL,
+    path: paths.launchAgentPath,
+    dataDir: paths.dataDir,
+    logDir: paths.logDir
+  };
+}
+
+export async function enableMacLaunchAgent(options = {}) {
+  const paths = requireMacPaths(options.paths);
+  const { execFile } = launchAgentOptions(options);
+
+  await execFilePromise(execFile, 'launchctl', ['bootstrap', currentUserDomain(), paths.launchAgentPath]);
+  await execFilePromise(execFile, 'launchctl', ['kickstart', '-k', serviceTarget()]);
+  return {
+    command: 'enable',
+    ok: true,
+    enabled: true,
+    label: LAUNCH_AGENT_LABEL,
+    path: paths.launchAgentPath
+  };
+}
+
+export async function disableMacLaunchAgent(options = {}) {
+  requireMacPaths(options.paths);
+  const { execFile } = launchAgentOptions(options);
+
+  await execFilePromise(execFile, 'launchctl', ['bootout', serviceTarget()]);
+  return {
+    command: 'disable',
+    ok: true,
+    disabled: true,
+    label: LAUNCH_AGENT_LABEL
+  };
+}
+
+export async function getMacLaunchAgentStatus(options = {}) {
+  const paths = requireMacPaths(options.paths);
+  const { fileSystem, execFile } = launchAgentOptions(options);
+  const installed = await pathExists(fileSystem, paths.launchAgentPath);
+
+  try {
+    const result = await execFilePromise(execFile, 'launchctl', ['print', serviceTarget()]);
+    return {
+      supported: true,
+      installed,
+      loaded: true,
+      label: LAUNCH_AGENT_LABEL,
+      path: paths.launchAgentPath,
+      detail: result.stdout.trim()
+    };
+  } catch (error) {
+    return {
+      supported: true,
+      installed,
+      loaded: false,
+      label: LAUNCH_AGENT_LABEL,
+      path: paths.launchAgentPath,
+      detail: String(error.stderr || error.code || error.message || '').trim()
+    };
+  }
+}
+
+export async function uninstallMacLaunchAgent(options = {}) {
+  const paths = requireMacPaths(options.paths);
+  const { fileSystem, execFile } = launchAgentOptions(options);
+  if (options.removeData && !options.confirmRemoveData) {
+    return {
+      command: 'uninstall',
+      ok: false,
+      error: 'Refusing to remove user data without --confirm-remove-data.'
+    };
+  }
+
+  let unloaded = true;
+  try {
+    await execFilePromise(execFile, 'launchctl', ['bootout', serviceTarget()]);
+  } catch {
+    unloaded = false;
+  }
+  await fileSystem.rm(paths.launchAgentPath, { force: true });
+  if (options.removeData) {
+    await fileSystem.rm(paths.dataDir, { recursive: true, force: true });
+  }
+
+  return {
+    command: 'uninstall',
+    ok: true,
+    uninstalled: true,
+    unloaded,
+    label: LAUNCH_AGENT_LABEL,
+    path: paths.launchAgentPath,
+    dataRemoved: Boolean(options.removeData)
   };
 }

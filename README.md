@@ -83,7 +83,7 @@ http://<电脑的私网 IP>:3321
 
 ## npm CLI 管理
 
-当前分支开始提供 `codexmobile` CLI 的产品化安装骨架。现有命令支持本机预检、状态查看、服务启停、日志查看和 macOS LaunchAgent 安装计划 dry-run。`install` 仍只支持 `--dry-run`，不会写入开机自启配置，也不会改变现有 `npm start` 使用方式。
+当前分支提供 `codexmobile` CLI 的产品化安装骨架。现有命令支持本机预检、状态查看、服务启停、日志查看和 macOS 用户级 LaunchAgent 显式安装。`install` 只有在用户主动执行非 dry-run 命令时才会写入 `~/Library/LaunchAgents/com.codexmobile.agent.plist`，不会改变现有 `npm start` 使用方式。
 
 本仓库内可直接执行：
 
@@ -94,6 +94,10 @@ node bin/codexmobile.mjs status --json
 node bin/codexmobile.mjs logs --json
 node bin/codexmobile.mjs stop --json
 node bin/codexmobile.mjs install --dry-run --json
+node bin/codexmobile.mjs install --json
+node bin/codexmobile.mjs enable --json
+node bin/codexmobile.mjs disable --json
+node bin/codexmobile.mjs uninstall --json
 ```
 
 发布为 npm 包后，等价入口为：
@@ -105,9 +109,13 @@ npx codexmobile status --json
 npx codexmobile logs --json
 npx codexmobile stop --json
 npx codexmobile install --dry-run --json
+npx codexmobile install --json
+npx codexmobile enable --json
+npx codexmobile disable --json
+npx codexmobile uninstall --json
 ```
 
-`doctor` 会检查 Node.js 版本、Codex 配置路径、默认 HTTP/HTTPS 端口、Tailscale 命令可用性和本机私网地址。`start` 会用后台进程运行 `codexmobile serve`，日志写入用户级日志目录；`stop` 只停止 CLI 状态文件记录的 CodexMobile 进程；`logs` 会读取最近日志并脱敏 relay secret、Bearer token 和 URL token；`status` 会返回用户级数据目录、日志目录、LaunchAgent 路径和当前 CLI 管理状态。`install --dry-run` 只输出将要创建的目录、plist 内容和将要执行的 `launchctl` 命令；真实开机自启安装和卸载在后续任务中实现。
+`doctor` 会检查 Node.js 版本、Codex 配置路径、默认 HTTP/HTTPS 端口、Tailscale 命令可用性和本机私网地址。`start` 会用后台进程运行 `codexmobile serve`，日志写入用户级日志目录；`stop` 只停止 CLI 状态文件记录的 CodexMobile 进程；`logs` 会读取最近日志并脱敏 relay secret、Bearer token 和 URL token；`status` 会返回用户级数据目录、日志目录、LaunchAgent 路径、plist 是否存在和 `launchctl` 是否已加载。`install --dry-run` 只输出将要创建的目录、plist 内容和将要执行的 `launchctl` 命令；`install` 会写入 plist、执行 `plutil -lint`，再调用 `launchctl bootstrap` 和 `kickstart`。`enable` 重新 bootstrap 并 kickstart 当前用户 LaunchAgent，`disable` 调用 `launchctl bootout`。`uninstall` 默认只移除 plist 并保留用户数据目录；删除用户数据必须显式同时传入 `--remove-data --confirm-remove-data`。
 
 ## HuggingFace Space 中转模式
 
