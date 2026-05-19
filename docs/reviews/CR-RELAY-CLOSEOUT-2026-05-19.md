@@ -93,3 +93,4 @@ npm run space:verify -- --url https://misonl-codexmobile-relay.hf.space --token 
 - 将 PR 从 draft 切换为 ready for review。
 - 分阶段拆分 `server/relay-runtime.js`、`scripts/relay-mac-client.mjs` 和 `scripts/relay-smoke.mjs`。
 - 如产品需要多台 Mac 同时在线，再设计 explicit multi-Mac routing UI/API。
+- 如进入多人、长期公网或 hostile network 使用场景，再补 per-token request cap、长期日志审计、secret rotation 演练记录、告警/指标导出和真实 provider-ready realtime 门禁。
