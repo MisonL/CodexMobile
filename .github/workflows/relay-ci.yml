@@ -34,7 +34,17 @@ jobs:
           node --check server/relay-http-static.js
           node --check server/relay-http-stream.js
           node --check server/relay-protocol.js
+          node --check scripts/relay-mac-client-backpressure.mjs
+          node --check scripts/relay-mac-client-body.mjs
+          node --check scripts/relay-mac-client-config.mjs
+          node --check scripts/relay-mac-client-reconnect.mjs
           node --check scripts/relay-mac-client.mjs
+          node --check scripts/relay-smoke-basic.mjs
+          node --check scripts/relay-smoke-connector-scenarios.mjs
+          node --check scripts/relay-smoke-env.mjs
+          node --check scripts/relay-smoke-fixture.mjs
+          node --check scripts/relay-smoke-mac-scenarios.mjs
+          node --check scripts/relay-smoke-relay-scenarios.mjs
           node --check scripts/relay-smoke.mjs
           node --check scripts/verify-hf-space-core.mjs
           node --check tests/space-verify.test.mjs

@@ -1,40 +1,44 @@
 import {
-  DEFAULT_RELAY_HEARTBEAT_MS,
-  DEFAULT_RELAY_IDLE_HEARTBEAT_MS,
-  DEFAULT_RELAY_REQUEST_TIMEOUT_MS,
   DEFAULT_RELAY_STREAM_CHUNK_BYTES,
-  DEFAULT_RELAY_WS_BUFFERED_BYTES,
   RELAY_PROTOCOL_VERSION,
   browserTokenFromHeaders,
-  buildLocalTargetUrl,
-  createConnectorInstanceId,
   createRequestId,
   filterRequestHeaders,
   filterResponseHeaders,
-  isStrongRelaySecret,
   jsonMessage,
-  parsePositiveInt,
   safeJsonParse,
   sendWsJson
 } from '../server/relay-protocol.js';
 import WebSocket from 'ws';
 import { pathToFileURL } from 'node:url';
-
-const INITIAL_RECONNECT_DELAY_MS = 1000;
-const ACTIVE_RECONNECT_CAP_MS = 30000;
-const STABLE_RECONNECT_RESET_MS = 60000;
-const WS_BUFFER_CHECK_INTERVAL_MS = 10;
-const WS_BUFFER_WAIT_TIMEOUT_MS = 30000;
-
-const RELAY_URL = String(process.env.CODEXMOBILE_RELAY_URL || '').trim();
-const RELAY_SECRET = String(process.env.CODEXMOBILE_RELAY_SECRET || '').trim();
-const DEVICE_NAME = String(process.env.CODEXMOBILE_RELAY_DEVICE_NAME || '').trim() || `${process.env.USER || 'mac'}-mac`;
-const LOCAL_URL = String(process.env.CODEXMOBILE_RELAY_LOCAL_URL || 'http://127.0.0.1:3321').replace(/\/+$/, '');
-const HEARTBEAT_MS = parsePositiveInt(process.env.CODEXMOBILE_RELAY_HEARTBEAT_MS, DEFAULT_RELAY_HEARTBEAT_MS);
-const IDLE_HEARTBEAT_MS = parsePositiveInt(process.env.CODEXMOBILE_RELAY_IDLE_HEARTBEAT_MS, DEFAULT_RELAY_IDLE_HEARTBEAT_MS);
-const REQUEST_TIMEOUT_MS = parsePositiveInt(process.env.CODEXMOBILE_RELAY_REQUEST_TIMEOUT_MS, DEFAULT_RELAY_REQUEST_TIMEOUT_MS);
-const MAX_BODY_BYTES = parsePositiveInt(process.env.CODEXMOBILE_RELAY_SMALL_BODY_BYTES, 2 * 1024 * 1024);
-const connectorInstanceId = process.env.CODEXMOBILE_RELAY_CONNECTOR_ID || createConnectorInstanceId();
+import {
+  DEVICE_NAME,
+  HEARTBEAT_MS,
+  IDLE_HEARTBEAT_MS,
+  MAX_BODY_BYTES,
+  RELAY_SECRET,
+  RELAY_URL,
+  REQUEST_TIMEOUT_MS,
+  buildLocalRealtimeWsUrl,
+  buildLocalUrl,
+  buildLocalWsUrl,
+  connectorInstanceId,
+  logState,
+  requireConfig
+} from './relay-mac-client-config.mjs';
+import {
+  ACTIVE_RECONNECT_CAP_MS,
+  INITIAL_RECONNECT_DELAY_MS,
+  STABLE_RECONNECT_RESET_MS,
+  nextReconnectDelay,
+  shouldResetReconnectDelay
+} from './relay-mac-client-reconnect.mjs';
+import {
+  decodeBody,
+  encodeResponseBody,
+  streamRequestBody
+} from './relay-mac-client-body.mjs';
+import { waitForSocketBackpressure } from './relay-mac-client-backpressure.mjs';
 
 let ws = null;
 let relayEpoch = 0;
@@ -50,49 +54,6 @@ let onlineSinceMs = 0;
 let relayActiveUntilMs = 0;
 const requestStreams = new Map();
 const realtimeTunnels = new Map();
-
-export function nextReconnectDelay(currentDelayMs, { active = false, idleHeartbeatMs = DEFAULT_RELAY_IDLE_HEARTBEAT_MS } = {}) {
-  const capMs = active ? ACTIVE_RECONNECT_CAP_MS : idleHeartbeatMs;
-  const delayMs = Math.min(Math.max(Number(currentDelayMs) || INITIAL_RECONNECT_DELAY_MS, INITIAL_RECONNECT_DELAY_MS), capMs);
-  return {
-    delayMs,
-    nextDelayMs: Math.min(delayMs * 2, capMs)
-  };
-}
-
-export function shouldResetReconnectDelay(onlineForMs) {
-  return Number(onlineForMs) >= STABLE_RECONNECT_RESET_MS;
-}
-
-function requireConfig() {
-  if (!RELAY_URL) {
-    throw new Error('CODEXMOBILE_RELAY_URL is required.');
-  }
-  if (!isStrongRelaySecret(RELAY_SECRET)) {
-    throw new Error('CODEXMOBILE_RELAY_SECRET must be at least 32 characters.');
-  }
-}
-
-function logState(state, reason = '') {
-  const suffix = reason ? ` reason=${reason}` : '';
-  console.log(`[relay:mac] state=${state} relay=${RELAY_URL}${suffix}`);
-}
-
-function buildLocalUrl(path) {
-  return buildLocalTargetUrl(path, LOCAL_URL);
-}
-
-function buildLocalWsUrl(token) {
-  const url = new URL(buildLocalUrl(`/ws?token=${encodeURIComponent(token)}`));
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-  return url.toString();
-}
-
-function buildLocalRealtimeWsUrl(token) {
-  const url = new URL(buildLocalUrl(`/ws/realtime?token=${encodeURIComponent(token)}`));
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-  return url.toString();
-}
 
 function closeLocalEventSocket() {
   const socket = localEventWs;
@@ -227,66 +188,11 @@ async function startLocalStatusLoop() {
   setTimeout(startLocalStatusLoop, localStatus.reachable ? 30000 : 5000).unref?.();
 }
 
-function decodeBody(bodyEncoding, body) {
-  if (!body) {
-    return undefined;
-  }
-  if (bodyEncoding === 'json') {
-    return typeof body === 'string' ? body : JSON.stringify(body);
-  }
-  if (bodyEncoding === 'base64') {
-    return Buffer.from(body, 'base64');
-  }
-  return String(body);
-}
-
-async function encodeResponseBody(response) {
-  const contentType = response.headers.get('content-type') || '';
-  const buffer = Buffer.from(await response.arrayBuffer());
-  if (buffer.length > MAX_BODY_BYTES) {
-    return {
-      type: 'http.error',
-      status: 501,
-      error: 'relay_streaming_required'
-    };
-  }
-  if (/application\/json/i.test(contentType)) {
-    const text = buffer.toString('utf8');
-    return {
-      bodyEncoding: 'json',
-      body: safeJsonParse(text) ?? {}
-    };
-  }
-  if (/^text\//i.test(contentType) || /charset=utf-8/i.test(contentType)) {
-    return {
-      bodyEncoding: 'text',
-      body: buffer.toString('utf8')
-    };
-  }
-  return {
-    bodyEncoding: 'base64',
-    body: buffer.toString('base64')
-  };
-}
-
-async function waitForConnectorBackpressure(maxBufferedBytes = DEFAULT_RELAY_WS_BUFFERED_BYTES) {
-  const startedAt = Date.now();
-  while ((ws?.bufferedAmount || 0) > maxBufferedBytes) {
-    if (Date.now() - startedAt > WS_BUFFER_WAIT_TIMEOUT_MS) {
-      throw Object.assign(new Error('relay_stream_backpressure_timeout'), { status: 502 });
-    }
-    await new Promise((resolve) => setTimeout(resolve, WS_BUFFER_CHECK_INTERVAL_MS));
-  }
-}
-
-async function waitForSocketBackpressure(socket, maxBufferedBytes = DEFAULT_RELAY_WS_BUFFERED_BYTES) {
-  const startedAt = Date.now();
-  while ((socket?.bufferedAmount || 0) > maxBufferedBytes) {
-    if (Date.now() - startedAt > WS_BUFFER_WAIT_TIMEOUT_MS) {
-      throw Object.assign(new Error('relay_realtime_backpressure_timeout'), { status: 502 });
-    }
-    await new Promise((resolve) => setTimeout(resolve, WS_BUFFER_CHECK_INTERVAL_MS));
-  }
+async function waitForConnectorBackpressure(maxBufferedBytes) {
+  await waitForSocketBackpressure(ws, {
+    maxBufferedBytes,
+    errorMessage: 'relay_stream_backpressure_timeout'
+  });
 }
 
 async function handleAuthValidate(message) {
@@ -363,7 +269,7 @@ async function fetchLocalHttp(message) {
 }
 
 async function sendBufferedHttpResponse(requestId, response) {
-  const encoded = await encodeResponseBody(response);
+  const encoded = await encodeResponseBody(response, { maxBodyBytes: MAX_BODY_BYTES });
   if (encoded.type === 'http.error') {
     sendWsJson(ws, { ...encoded, requestId, macConnectionEpoch: relayEpoch });
     return;
@@ -412,14 +318,6 @@ async function handleHttpStreamRequest(message) {
   } catch (error) {
     sendStreamError(requestId, error);
   }
-}
-
-function streamRequestBody(message) {
-  const method = String(message.method || 'GET').toUpperCase();
-  if (['GET', 'HEAD'].includes(method)) {
-    return undefined;
-  }
-  return decodeBody(message.bodyEncoding, message.body);
 }
 
 async function sendStreamingHttpResponse(requestId, response) {
@@ -577,7 +475,7 @@ function handleHttpRequestError(message) {
 }
 
 async function sendStreamResponse(requestId, response) {
-  const encoded = await encodeResponseBody(response);
+  const encoded = await encodeResponseBody(response, { maxBodyBytes: MAX_BODY_BYTES });
   if (encoded.type === 'http.error') {
     sendWsJson(ws, {
       ...encoded,
