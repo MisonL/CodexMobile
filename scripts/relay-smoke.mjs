@@ -15,6 +15,7 @@ import {
   verifyForwardedHttp,
   verifyGlobalPendingLimit,
   verifyMacOfflineState,
+  verifyPerTokenRequestCap,
   verifyRelaySecretRotationGraceWindow,
   verifyRelayStartup
 } from './relay-smoke-relay-scenarios.mjs';
@@ -45,7 +46,9 @@ async function main() {
     await verifyIdleAndActiveHeartbeat(mac);
     const pendingLimitMac = await verifyBrowserPendingLimit(
       await verifyCachedTokenBypassesValidationRateLimit(
-        await verifyForwardedHttp(mac)
+        await verifyPerTokenRequestCap(
+          await verifyForwardedHttp(mac)
+        )
       )
     );
     const globalLimitMac = await verifyGlobalPendingLimit(pendingLimitMac);

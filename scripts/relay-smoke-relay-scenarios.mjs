@@ -1,9 +1,12 @@
+import WebSocket from 'ws';
 import {
+  baseUrl,
   fail,
   previousSecret,
   relayUrl,
   request,
-  secret
+  secret,
+  tokenRequestLimit
 } from './relay-smoke-env.mjs';
 import {
   connectMac,
@@ -22,6 +25,8 @@ export async function verifyRelayStartup() {
     result.data.macConnected !== false ||
     result.data.limits?.pendingRequestsMax !== 2 ||
     result.data.limits?.browserPendingRequestsMax !== 1 ||
+    result.data.limits?.browserTokenRequestsPerMinute !== tokenRequestLimit ||
+    result.data.limits?.browserTokenRequestWindowMs !== 60000 ||
     result.data.limits?.requestBodyMaxBytes !== 1024 ||
     result.data.limits?.heartbeatMs !== 100 ||
     result.data.limits?.idleHeartbeatMs !== 500
@@ -112,6 +117,61 @@ export async function verifyCachedTokenBypassesValidationRateLimit(mac) {
     }
   }
   return mac;
+}
+
+export async function verifyPerTokenRequestCap(mac) {
+  for (let index = 0; index < tokenRequestLimit; index += 1) {
+    const result = await request('/api/projects', { headers: { authorization: 'Bearer valid-token-cap' } });
+    if (result.response.status !== 200 || result.data.projects?.[0]?.id !== 'mac-project') {
+      fail('requests within per-token cap should be forwarded to Mac', { index, result });
+    }
+  }
+  const limited = await request('/api/projects', { headers: { authorization: 'Bearer valid-token-cap' } });
+  if (
+    limited.response.status !== 429 ||
+    limited.data.error !== 'relay_rate_limited' ||
+    limited.data.reason !== 'relay_token_request_limit_exceeded' ||
+    !(limited.data.retryAfter > 0)
+  ) {
+    fail('same browser token should be rate limited after per-token cap is exhausted', limited);
+  }
+  await expectBrowserSocketRateLimited('valid-token-cap');
+  const otherToken = await request('/api/projects', { headers: { authorization: 'Bearer valid-token-cap-other' } });
+  if (otherToken.response.status !== 200 || otherToken.data.projects?.[0]?.id !== 'mac-project') {
+    fail('per-token cap should not rate limit a different browser token', otherToken);
+  }
+  const status = await request('/api/status', { headers: { authorization: 'Bearer valid-token' } });
+  if (
+    status.data.metrics?.browserTokenRateLimitedTotal < 1 ||
+    status.data.metrics?.browserTokenRequestsTotal < tokenRequestLimit + 1
+  ) {
+    fail('/api/status should expose per-token request cap metrics', status);
+  }
+  return mac;
+}
+
+function expectBrowserSocketRateLimited(token) {
+  const ws = new WebSocket(`${baseUrl.replace('http:', 'ws:')}/ws?token=${encodeURIComponent(token)}`);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      ws.terminate();
+      reject(new Error('timed out waiting for browser token request limit'));
+    }, 3000);
+    ws.on('unexpected-response', (_req, response) => {
+      clearTimeout(timer);
+      if (response.statusCode === 429 && Number(response.headers['retry-after']) > 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(`expected 429 with Retry-After for browser token request limit, got ${response.statusCode}`));
+    });
+    ws.on('open', () => {
+      clearTimeout(timer);
+      ws.close();
+      reject(new Error('rate limited browser token should not open websocket'));
+    });
+    ws.on('error', () => {});
+  });
 }
 
 export async function verifyBrowserPendingLimit(mac) {

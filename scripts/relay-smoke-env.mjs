@@ -7,6 +7,7 @@ export const port = Number(process.env.CODEXMOBILE_RELAY_TEST_PORT || 9786);
 export const baseUrl = `http://127.0.0.1:${port}`;
 export const relayUrl = `ws://127.0.0.1:${port}/relay/mac`;
 export const localFixturePort = Number(process.env.CODEXMOBILE_RELAY_LOCAL_FIXTURE_PORT || 9788);
+export const tokenRequestLimit = Number(process.env.CODEXMOBILE_RELAY_TOKEN_REQUESTS_PER_MINUTE || 120);
 export const rootDir = fileURLToPath(new URL('..', import.meta.url));
 
 export function fail(message, detail) {
@@ -32,7 +33,9 @@ export function spawnRelay() {
       CODEXMOBILE_RELAY_REQUEST_TIMEOUT_MS: '3000',
       CODEXMOBILE_RELAY_SMALL_BODY_BYTES: '1024',
       CODEXMOBILE_RELAY_PENDING_REQUESTS_MAX: '2',
-      CODEXMOBILE_RELAY_BROWSER_PENDING_REQUESTS_MAX: '1'
+      CODEXMOBILE_RELAY_BROWSER_PENDING_REQUESTS_MAX: '1',
+      CODEXMOBILE_RELAY_TOKEN_REQUESTS_PER_MINUTE: String(tokenRequestLimit),
+      CODEXMOBILE_RELAY_TOKEN_REQUEST_WINDOW_MS: '60000'
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });

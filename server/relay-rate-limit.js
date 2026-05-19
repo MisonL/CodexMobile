@@ -13,6 +13,10 @@ export function tokenRateLimitKey(token) {
   return crypto.createHash('sha256').update(String(token || '')).digest('hex').slice(0, 24);
 }
 
+export function browserTokenRequestLimitKey(token) {
+  return `token-request:${tokenRateLimitKey(token)}`;
+}
+
 export function createMemoryRateLimiter({ maxBuckets = 5000 } = {}) {
   const buckets = new Map();
 
@@ -52,4 +56,14 @@ export function createMemoryRateLimiter({ maxBuckets = 5000 } = {}) {
   }
 
   return { consume };
+}
+
+export function consumeBrowserTokenRequest(rateLimiter, token, { limit, windowMs }) {
+  if (!rateLimiter || !token) {
+    return { allowed: true, retryAfter: 0 };
+  }
+  return rateLimiter.consume(browserTokenRequestLimitKey(token), {
+    limit,
+    windowMs
+  });
 }

@@ -13,7 +13,11 @@ import {
   parsePositiveInt
 } from './relay-protocol.js';
 import { createRelayHttpHandler } from './relay-http.js';
-import { clientIpFromRequest, createMemoryRateLimiter } from './relay-rate-limit.js';
+import {
+  clientIpFromRequest,
+  consumeBrowserTokenRequest,
+  createMemoryRateLimiter
+} from './relay-rate-limit.js';
 import { createRelayRuntime } from './relay-runtime.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -36,6 +40,8 @@ const MAX_BODY_BYTES = parsePositiveInt(process.env.CODEXMOBILE_RELAY_SMALL_BODY
 const TOKEN_CACHE_TTL_MS = parsePositiveInt(process.env.CODEXMOBILE_RELAY_TOKEN_CACHE_TTL_MS, 5 * 60 * 1000);
 const PENDING_REQUESTS_MAX = parsePositiveInt(process.env.CODEXMOBILE_RELAY_PENDING_REQUESTS_MAX, 64);
 const BROWSER_PENDING_REQUESTS_MAX = parsePositiveInt(process.env.CODEXMOBILE_RELAY_BROWSER_PENDING_REQUESTS_MAX, 6);
+const BROWSER_TOKEN_REQUESTS_PER_MINUTE = parsePositiveInt(process.env.CODEXMOBILE_RELAY_TOKEN_REQUESTS_PER_MINUTE, 120);
+const BROWSER_TOKEN_REQUEST_WINDOW_MS = parsePositiveInt(process.env.CODEXMOBILE_RELAY_TOKEN_REQUEST_WINDOW_MS, 60000);
 const TRUST_PROXY = process.env.CODEXMOBILE_RELAY_TRUST_PROXY === '1';
 
 function assertRelayConfig() {
@@ -53,8 +59,17 @@ function assertRelayConfig() {
   }
 }
 
-function writeUpgradeStatus(socket, status, reason) {
-  socket.write(`HTTP/1.1 ${status} ${reason}\r\n\r\n`);
+function writeUpgradeStatus(socket, status, reason, headers = {}) {
+  const headerLines = Object.entries(headers)
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .map(([name, value]) => `${name}: ${value}`);
+  socket.write([
+    `HTTP/1.1 ${status} ${reason}`,
+    'Connection: close',
+    ...headerLines,
+    '',
+    ''
+  ].join('\r\n'));
   socket.destroy();
 }
 
@@ -66,11 +81,11 @@ function createUpgradeHandler(runtime, macWss, browserWss, realtimeWss, rateLimi
       return;
     }
     if (url.pathname === '/ws/realtime') {
-      handleRealtimeUpgrade(url, req, socket, head, realtimeWss, runtime);
+      handleRealtimeUpgrade(url, req, socket, head, realtimeWss, runtime, rateLimiter);
       return;
     }
     if (url.pathname === '/ws') {
-      handleBrowserUpgrade(url, req, socket, head, browserWss, runtime);
+      handleBrowserUpgrade(url, req, socket, head, browserWss, runtime, rateLimiter);
       return;
     }
     socket.destroy();
@@ -89,7 +104,7 @@ function handleMacUpgrade(req, socket, head, macWss, runtime, rateLimiter) {
     if (!result.allowed) {
       runtime.metrics.rateLimitedTotal += 1;
       logRelayEvent('relay.rate_limited', { scope: 'mac-auth', retryAfter: result.retryAfter });
-      writeUpgradeStatus(socket, 429, 'Too Many Requests');
+      writeUpgradeStatus(socket, 429, 'Too Many Requests', { 'Retry-After': result.retryAfter });
       return;
     }
     writeUpgradeStatus(socket, 401, 'Unauthorized');
@@ -98,11 +113,14 @@ function handleMacUpgrade(req, socket, head, macWss, runtime, rateLimiter) {
   macWss.handleUpgrade(req, socket, head, (ws) => runtime.acceptMacSocket(ws));
 }
 
-function handleBrowserUpgrade(url, req, socket, head, browserWss, runtime) {
+function handleBrowserUpgrade(url, req, socket, head, browserWss, runtime, rateLimiter) {
   const token = url.searchParams.get('token') || '';
   runtime.validateBrowserToken(token).then((valid) => {
     if (!valid) {
       writeUpgradeStatus(socket, 401, 'Unauthorized');
+      return;
+    }
+    if (!consumeBrowserUpgradeLimit(runtime, rateLimiter, token, socket)) {
       return;
     }
     browserWss.handleUpgrade(req, socket, head, (ws) => runtime.acceptBrowserSocket(ws));
@@ -111,17 +129,40 @@ function handleBrowserUpgrade(url, req, socket, head, browserWss, runtime) {
   });
 }
 
-function handleRealtimeUpgrade(url, req, socket, head, realtimeWss, runtime) {
+function handleRealtimeUpgrade(url, req, socket, head, realtimeWss, runtime, rateLimiter) {
   const token = url.searchParams.get('token') || '';
   runtime.validateBrowserToken(token).then((valid) => {
     if (!valid) {
       writeUpgradeStatus(socket, 401, 'Unauthorized');
       return;
     }
+    if (!consumeBrowserUpgradeLimit(runtime, rateLimiter, token, socket)) {
+      return;
+    }
     realtimeWss.handleUpgrade(req, socket, head, (ws) => runtime.acceptRealtimeSocket(ws, token));
   }).catch((error) => {
     writeUpgradeStatus(socket, error.status || 503, 'Service Unavailable');
   });
+}
+
+function consumeBrowserUpgradeLimit(runtime, rateLimiter, token, socket) {
+  const result = consumeBrowserTokenRequest(rateLimiter, token, {
+    limit: BROWSER_TOKEN_REQUESTS_PER_MINUTE,
+    windowMs: BROWSER_TOKEN_REQUEST_WINDOW_MS
+  });
+  if (!result.allowed) {
+    runtime.metrics.rateLimitedTotal += 1;
+    runtime.metrics.browserTokenRateLimitedTotal += 1;
+    logRelayEvent('relay.rate_limited', {
+      reason: 'relay_token_request_limit_exceeded',
+      retryAfter: result.retryAfter,
+      transport: 'websocket'
+    });
+    writeUpgradeStatus(socket, 429, 'Too Many Requests', { 'Retry-After': result.retryAfter });
+    return false;
+  }
+  runtime.metrics.browserTokenRequestsTotal += 1;
+  return true;
 }
 
 function main() {
@@ -136,6 +177,8 @@ function main() {
     tokenCacheTtlMs: TOKEN_CACHE_TTL_MS,
     pendingRequestsMax: PENDING_REQUESTS_MAX,
     browserPendingRequestsMax: BROWSER_PENDING_REQUESTS_MAX,
+    browserTokenRequestsPerMinute: BROWSER_TOKEN_REQUESTS_PER_MINUTE,
+    browserTokenRequestWindowMs: BROWSER_TOKEN_REQUEST_WINDOW_MS,
     requestBodyMaxBytes: MAX_BODY_BYTES
   });
   const requestHandler = createRelayHttpHandler({
@@ -144,7 +187,9 @@ function main() {
     requestTimeoutMs: REQUEST_TIMEOUT_MS,
     runtime,
     rateLimiter,
-    trustProxy: TRUST_PROXY
+    trustProxy: TRUST_PROXY,
+    browserTokenRequestsPerMinute: BROWSER_TOKEN_REQUESTS_PER_MINUTE,
+    browserTokenRequestWindowMs: BROWSER_TOKEN_REQUEST_WINDOW_MS
   });
   const server = http.createServer(requestHandler);
   const macWss = new WebSocketServer({ noServer: true });

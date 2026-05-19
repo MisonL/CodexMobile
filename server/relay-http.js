@@ -8,7 +8,11 @@ import {
   logRelayEvent,
   safePathWithQuery
 } from './relay-protocol.js';
-import { clientIpFromRequest, tokenRateLimitKey } from './relay-rate-limit.js';
+import {
+  clientIpFromRequest,
+  consumeBrowserTokenRequest,
+  tokenRateLimitKey
+} from './relay-rate-limit.js';
 import {
   encodeRequestBody,
   readRequestBody,
@@ -28,13 +32,26 @@ export function sendJson(res, status, payload, headers = {}) {
   res.end(body);
 }
 
-export function createRelayHttpHandler({ clientDist, maxBodyBytes, requestTimeoutMs, runtime, rateLimiter, trustProxy }) {
+export function createRelayHttpHandler({
+  clientDist,
+  maxBodyBytes,
+  requestTimeoutMs,
+  runtime,
+  rateLimiter,
+  trustProxy,
+  browserTokenRequestsPerMinute = 120,
+  browserTokenRequestWindowMs = 60000
+}) {
   const streams = createRelayHttpStreams({ runtime, maxBodyBytes, requestTimeoutMs, sendRelayError });
 
-  function sendRateLimited(res, result) {
+  function sendRateLimited(res, result, reason = '') {
     runtime.metrics.rateLimitedTotal += 1;
-    logRelayEvent('relay.rate_limited', { retryAfter: result.retryAfter });
-    sendJson(res, 429, { error: 'relay_rate_limited', retryAfter: result.retryAfter });
+    logRelayEvent('relay.rate_limited', { reason, retryAfter: result.retryAfter });
+    sendJson(res, 429, {
+      error: 'relay_rate_limited',
+      ...(reason ? { reason } : {}),
+      retryAfter: result.retryAfter
+    });
   }
 
   function sendRelayError(res, status, message) {
@@ -59,6 +76,20 @@ export function createRelayHttpHandler({ clientDist, maxBodyBytes, requestTimeou
       sendRateLimited(res, result);
       return false;
     }
+    return true;
+  }
+
+  function consumeTokenRequestLimit(res, token) {
+    const result = consumeBrowserTokenRequest(rateLimiter, token, {
+      limit: browserTokenRequestsPerMinute,
+      windowMs: browserTokenRequestWindowMs
+    });
+    if (!result.allowed) {
+      runtime.metrics.browserTokenRateLimitedTotal += 1;
+      sendRateLimited(res, result, 'relay_token_request_limit_exceeded');
+      return false;
+    }
+    runtime.metrics.browserTokenRequestsTotal += 1;
     return true;
   }
 
@@ -90,6 +121,9 @@ export function createRelayHttpHandler({ clientDist, maxBodyBytes, requestTimeou
     if (authRequired) {
       browserToken = await requireBrowserAuth(req, res);
       if (!browserToken) {
+        return;
+      }
+      if (!consumeTokenRequestLimit(res, browserToken)) {
         return;
       }
     }
@@ -213,6 +247,9 @@ export function createRelayHttpHandler({ clientDist, maxBodyBytes, requestTimeou
       if (url.pathname.startsWith('/generated/')) {
         const browserToken = await requireBrowserAuth(req, res);
         if (browserToken) {
+          if (!consumeTokenRequestLimit(res, browserToken)) {
+            return;
+          }
           await streams.streamResponseFromMac(req, res, url, browserToken);
         }
         return;

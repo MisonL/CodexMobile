@@ -100,7 +100,7 @@ Phase 1 最小策略：
 
 - `/api/pair` 按可信 client IP 做内存限流。
 - token validation cache miss 按 token hash 前缀和可信 client IP 做内存限流；已缓存通过的 browser token 不消耗该限流 bucket。
-- 该 token validation bucket 不是已鉴权请求的通用速率上限；如进入多用户或 hostile 网络环境，需要单独设计 per-token request cap。
+- 已鉴权转发请求和 browser/realtime WebSocket 建连按 browser token hash 做通用速率上限；`/api/status` 不计入该 cap，避免状态轮询阻断诊断。
 - Mac connector 鉴权失败按 socket remote address 做短 TTL deny list。
 - 限流命中返回 `429 relay_rate_limited`。
 
@@ -110,6 +110,7 @@ Phase 1 最小策略：
 | --- | --- | --- |
 | `/api/pair` | 60 秒 | 10 次 |
 | token validation miss | 60 秒 | 60 次 |
+| browser token relay request | 60 秒 | 120 次 |
 | Mac secret 鉴权失败 | 5 分钟 | 5 次 |
 | 单浏览器并发 relay 请求 | 即时 | 6 个 |
 | 全局 pending relay 请求 | 即时 | 64 个 |
@@ -301,7 +302,7 @@ Space 不应信任浏览器传来的 `host`、`x-forwarded-host` 或 query token
 | 任务 | 当前边界 | 必要设计 | 验证口径 |
 | --- | --- | --- | --- |
 | explicit multi-Mac routing | 当前只安全拒绝不同 `connectorInstanceId` 的并发 Mac connector。 | route id、浏览器选择 UI/API、token 与 route 绑定、连接抢占规则、歧义状态文案。 | 两台 Mac 同时在线时，浏览器能显式选择目标；未选择目标的请求不随机转发；错误路径返回稳定 code。 |
-| per-token request cap | 当前只有 pairing、token validation miss、单浏览器 pending 和全局 pending 限制。 | 按 browser token hash 计数的请求速率、并发上限、route 例外、`retryAfter` 语义。 | 同一 token 超限返回 `429 relay_rate_limited`；其他 token 不受牵连；前端只禁用对应操作。 |
+| per-token request cap | 当前已有按 browser token hash 的通用请求 cap；`/api/status` 例外。 | 后续只需按使用场景调参、分 route 权重或增加用户可配置策略。 | 同一 token 超限返回 `429 relay_rate_limited`；其他 token 不受牵连；前端只禁用对应操作。 |
 | 长期审计日志 | 当前只要求结构化日志和敏感字段禁止出现。 | 日志保留周期、字段 schema、requestId 关联、脱敏扫描、导出与删除策略。 | 日志样本通过 secret/token/body/path 扫描；能按 requestId 追踪失败；删除策略可演练。 |
 | 指标和告警导出 | 当前只在 `/api/status` 暴露安全 counters。 | metrics endpoint 或平台适配、失败率阈值、connector offline 告警、rate-limit 告警。 | 人为断开 Mac、打满限流、制造超时后，指标变化和告警触发可复现。 |
 | 公网多人安全加固 | 当前定位为可信网络和受控试运行。 | proxy trust 策略、origin allowlist、CSRF/Origin 检查、token rotation、abuse response。 | 非可信 `x-forwarded-for` 不影响限流 key；跨 origin 请求被拒绝；secret rotation 演练不泄露 token。 |

@@ -6,6 +6,8 @@ export function createRelayMetrics() {
     rateLimitedTotal: 0,
     pendingLimitRejectedTotal: 0,
     authValidationMissTotal: 0,
+    browserTokenRequestsTotal: 0,
+    browserTokenRateLimitedTotal: 0,
     macAuthFailuresTotal: 0,
     macConnectsTotal: 0,
     macDisconnectsTotal: 0,
@@ -44,6 +46,8 @@ export function buildRelayStatus({
   pendingRelayRequests,
   pendingRequestsMax,
   browserPendingRequestsMax,
+  browserTokenRequestsPerMinute,
+  browserTokenRequestWindowMs,
   requestBodyMaxBytes,
   previousRelaySecret,
   realtimeSocketsCurrent,
@@ -72,6 +76,8 @@ export function buildRelayStatus({
     limits: {
       pendingRequestsMax,
       browserPendingRequestsMax,
+      browserTokenRequestsPerMinute,
+      browserTokenRequestWindowMs,
       requestBodyMaxBytes,
       heartbeatMs,
       idleHeartbeatMs

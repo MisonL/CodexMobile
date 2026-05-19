@@ -24,6 +24,8 @@ export function createRelayRuntime({
   tokenCacheTtlMs,
   pendingRequestsMax = 64,
   browserPendingRequestsMax = 6,
+  browserTokenRequestsPerMinute = 120,
+  browserTokenRequestWindowMs = 60000,
   requestBodyMaxBytes = 0
 }) {
   const browserSockets = new Set();
@@ -84,6 +86,8 @@ export function createRelayRuntime({
       pendingRelayRequests: pendingRequests.size,
       pendingRequestsMax,
       browserPendingRequestsMax,
+      browserTokenRequestsPerMinute,
+      browserTokenRequestWindowMs,
       requestBodyMaxBytes,
       previousRelaySecret,
       realtimeSocketsCurrent: realtimeSockets.size,
