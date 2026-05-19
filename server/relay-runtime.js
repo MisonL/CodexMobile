@@ -8,6 +8,7 @@ import {
   sendWsJson
 } from './relay-protocol.js';
 import { createBrowserTokenCache } from './relay-runtime-token-cache.js';
+import { createPendingRequestStore } from './relay-runtime-pending.js';
 import {
   buildRelayStatus,
   createRelayMetrics
@@ -25,10 +26,16 @@ export function createRelayRuntime({
   requestBodyMaxBytes = 0
 }) {
   const browserSockets = new Set();
-  const pendingRequests = new Map();
   const realtimeSockets = new Map();
   const browserTokenCache = createBrowserTokenCache({ ttlMs: tokenCacheTtlMs });
   const metrics = createRelayMetrics();
+  const pendingRequests = createPendingRequestStore({
+    createRequestId,
+    metrics,
+    onChanged: () => scheduleHeartbeat(),
+    pendingRequestsMax,
+    browserPendingRequestsMax
+  });
 
   let macSocket = null;
   let macInfo = null;
@@ -74,42 +81,12 @@ export function createRelayRuntime({
     }
   }
 
-  function failPendingForEpoch(epoch, status, error) {
-    for (const [requestId, pending] of pendingRequests.entries()) {
-      if (pending.epoch !== epoch) {
-        continue;
-      }
-      clearTimeout(pending.timer);
-      deletePendingRequest(requestId);
-      pending.reject(Object.assign(new Error(error), { status }));
-    }
-  }
-
   function closeRealtimeForEpoch(epoch, reason) {
     for (const session of realtimeSockets.values()) {
       if (session.epoch === epoch) {
         closeRealtimeSession(session, { code: 1011, reason, notifyMac: false });
       }
     }
-  }
-
-  function pendingCountForClient(clientKey) {
-    if (!clientKey) {
-      return 0;
-    }
-    let count = 0;
-    for (const pending of pendingRequests.values()) {
-      if (pending.clientKey === clientKey) {
-        count += 1;
-      }
-    }
-    return count;
-  }
-
-  function pendingLimitError(error) {
-    metrics.pendingLimitRejectedTotal += 1;
-    metrics.rateLimitedTotal += 1;
-    return Object.assign(new Error(error), { status: 429 });
   }
 
   function assertMacAvailable(envelope, clientKey = '') {
@@ -119,24 +96,11 @@ export function createRelayRuntime({
     if (macInfo?.localStatus?.reachable === false && envelope.type !== 'auth.validate') {
       throw Object.assign(new Error('mac_local_offline'), { status: 503 });
     }
-    if (pendingRequests.size >= pendingRequestsMax) {
-      throw pendingLimitError('relay_pending_limit_exceeded');
-    }
-    if (clientKey && pendingCountForClient(clientKey) >= browserPendingRequestsMax) {
-      throw pendingLimitError('relay_client_pending_limit_exceeded');
-    }
+    pendingRequests.assertCapacity(clientKey);
   }
 
   function heartbeatInterval() {
     return browserSockets.size > 0 || pendingRequests.size > 0 ? heartbeatMs : idleHeartbeatMs;
-  }
-
-  function deletePendingRequest(requestId) {
-    const deleted = pendingRequests.delete(requestId);
-    if (deleted) {
-      scheduleHeartbeat();
-    }
-    return deleted;
   }
 
   function detachMacSocket(ws) {
@@ -149,7 +113,7 @@ export function createRelayRuntime({
       macInfo.lastSeenAt = new Date().toISOString();
     }
     metrics.macDisconnectsTotal += 1;
-    failPendingForEpoch(oldEpoch, 502, 'mac_offline');
+    pendingRequests.failForEpoch(oldEpoch, 502, 'mac_offline');
     closeRealtimeForEpoch(oldEpoch, 'mac_offline');
     broadcast({ type: 'relay-status', ...currentRelayStatus(true) });
     clearTimeout(heartbeatTimer);
@@ -202,7 +166,7 @@ export function createRelayRuntime({
         return;
       }
       const oldEpoch = macConnectionEpoch;
-      failPendingForEpoch(oldEpoch, 502, 'mac_reconnected');
+      pendingRequests.failForEpoch(oldEpoch, 502, 'mac_reconnected');
       closeRealtimeForEpoch(oldEpoch, 'mac_reconnected');
       try {
         macSocket.close(4000, 'mac_reconnected');
@@ -241,31 +205,13 @@ export function createRelayRuntime({
 
   function createPendingMacRequest(envelope, timeoutMs = requestTimeoutMs, { clientKey = '', streamHandlers = null } = {}) {
     assertMacAvailable(envelope, clientKey);
-    const requestId = envelope.requestId || createRequestId();
-    const epoch = macConnectionEpoch;
-    const pending = {
-      resolve: () => {},
-      reject: () => {},
-      timer: null,
-      epoch,
+    return pendingRequests.create({
+      envelope,
+      timeoutMs,
+      epoch: macConnectionEpoch,
       clientKey,
-      streamHandlers,
-      streamSequence: 0,
-      streamStarted: false
-    };
-    const response = new Promise((resolve, reject) => {
-      pending.resolve = resolve;
-      pending.reject = reject;
+      streamHandlers
     });
-    pending.timer = setTimeout(() => {
-      deletePendingRequest(requestId);
-      metrics.relayRequestsTimedOut += 1;
-      pending.reject(Object.assign(new Error('relay_request_timeout'), { status: 502 }));
-    }, timeoutMs);
-
-    pendingRequests.set(requestId, pending);
-    scheduleHeartbeat();
-    return { requestId, epoch, response };
   }
 
   function requestMac(envelope, timeoutMs = requestTimeoutMs, { clientKey = '' } = {}) {
@@ -317,13 +263,7 @@ export function createRelayRuntime({
   }
 
   function failMacRequest(requestId, status, error) {
-    const pending = pendingRequests.get(requestId);
-    if (!pending) {
-      return;
-    }
-    clearTimeout(pending.timer);
-    deletePendingRequest(requestId);
-    pending.reject(Object.assign(new Error(error), { status }));
+    pendingRequests.fail(requestId, status, error);
   }
 
   function macBufferedAmount() {
@@ -448,15 +388,13 @@ export function createRelayRuntime({
     if (!pending || (payload.macConnectionEpoch && payload.macConnectionEpoch !== pending.epoch)) {
       return;
     }
-    clearTimeout(pending.timer);
-    deletePendingRequest(payload.requestId);
     if (payload.type === 'http.error') {
-      pending.reject(Object.assign(new Error(payload.error || 'relay_upstream_error'), {
+      pendingRequests.settle(payload.requestId, (settled) => settled.reject(Object.assign(new Error(payload.error || 'relay_upstream_error'), {
         status: payload.status || 502
-      }));
+      })));
       return;
     }
-    pending.resolve(payload);
+    pendingRequests.settle(payload.requestId, (settled) => settled.resolve(payload));
   }
 
   async function handleStreamResponsePayload(payload) {
@@ -473,15 +411,15 @@ export function createRelayRuntime({
       await handleStreamResponseChunk(pending, payload);
       return;
     }
-    clearTimeout(pending.timer);
-    deletePendingRequest(payload.requestId);
     if (payload.type === 'http.stream.error') {
-      await pending.streamHandlers.onError?.(payload);
-      pending.reject(Object.assign(new Error(payload.error || 'relay_stream_error'), { status: payload.status || 502 }));
+      const settled = pendingRequests.settle(payload.requestId, () => {});
+      await settled.streamHandlers.onError?.(payload);
+      settled.reject(Object.assign(new Error(payload.error || 'relay_stream_error'), { status: payload.status || 502 }));
       return;
     }
-    await pending.streamHandlers.onEnd?.(payload);
-    pending.resolve(payload);
+    const settled = pendingRequests.settle(payload.requestId, () => {});
+    await settled.streamHandlers.onEnd?.(payload);
+    settled.resolve(payload);
   }
 
   async function handleStreamResponseChunk(pending, payload) {

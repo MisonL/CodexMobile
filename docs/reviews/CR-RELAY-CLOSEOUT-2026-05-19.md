@@ -35,10 +35,10 @@
 | `scripts/relay-smoke-*.mjs` | 63-189 | fixture、assert helpers、scenario groups 均在 300 行以内 |
 | `scripts/relay-mac-client.mjs` | 742 | 已拆出 config、body、backpressure、reconnect helper；仍需后续按 HTTP forwarding、streaming、realtime、connection loop 继续拆分 |
 | `scripts/relay-mac-client-*.mjs` | 18-51 | 新 helper，300 行以内 |
-| `server/relay-runtime.js` | 640 | 已拆出 token cache、metrics 与 status helper；仍需后续按 auth、Mac connection、pending request、realtime tunnel 继续拆分 |
-| `server/relay-runtime-*.js` | 38-89 | 新 helper，300 行以内 |
+| `server/relay-runtime.js` | 578 | 已拆出 token cache、metrics/status 和 pending request store；仍需后续按 auth、Mac connection、realtime tunnel 继续拆分 |
+| `server/relay-runtime-*.js` | 38-117 | 新 helper，300 行以内 |
 
-本轮继续拆低风险 helper、runtime 纯状态构造和 smoke 场景文件。剩余两个大状态机文件涉及 relay runtime 和真实 connector 行为，不在同一收口补丁中做大规模重写。
+本轮继续拆低风险 helper、runtime 纯状态构造、pending request store 和 smoke 场景文件。剩余两个大状态机文件涉及 relay runtime 和真实 connector 行为，不在同一收口补丁中做大规模重写。
 
 ## 后续门禁边界
 
@@ -77,6 +77,13 @@
 | 2026-05-19 follow-up `HOST=127.0.0.1 PORT=9798 npm start ... && CODEXMOBILE_URL=http://127.0.0.1:9798/api/status npm run smoke` after runtime helper split | 0 | Local server smoke passed and temporary server was stopped. |
 | 2026-05-19 follow-up `npm run build` after runtime helper split | 0 | Vite build passed. |
 | 2026-05-19 follow-up `npm run space:verify -- --url https://misonl-codexmobile-relay.hf.space --json` after runtime helper split | 0 | Public checks passed 4/4; authenticated checks skipped without browser token or pair code. |
+| 2026-05-19 follow-up `node --check server/relay-runtime.js && node --check server/relay-runtime-pending.js && node --check server/relay-runtime-status.js && node --check server/relay-runtime-token-cache.js && node --check server/relay-server.js` | 0 | Passed after pending request store split. |
+| 2026-05-19 follow-up `npm run smoke:relay` after pending request store split | 0 | Passed; output included `Relay smoke ok`. |
+| 2026-05-19 follow-up full syntax checks after pending request store split | 0 | Passed for relay runtime, relay HTTP, relay Mac client, relay smoke and Space verifier files. |
+| 2026-05-19 follow-up `npm run test:space-verify` after pending request store split | 0 | Passed 11/11. |
+| 2026-05-19 follow-up `HOST=127.0.0.1 PORT=9798 npm start ... && CODEXMOBILE_URL=http://127.0.0.1:9798/api/status npm run smoke` after pending request store split | 0 | Local server smoke passed and temporary server was stopped. |
+| 2026-05-19 follow-up `npm run build` after pending request store split | 0 | Vite build passed. |
+| 2026-05-19 follow-up `npm run space:verify -- --url https://misonl-codexmobile-relay.hf.space --json` after pending request store split | 0 | Public checks passed 4/4; authenticated checks skipped without browser token or pair code. |
 
 ## 线上复验边界
 
@@ -115,6 +122,6 @@ npm run space:verify -- --url https://misonl-codexmobile-relay.hf.space --token 
 
 本轮已完成文档口径对齐、CI 门禁定义、低风险复杂度拆分、依赖 audit 修复、本地验证闭环、最新 Space 部署复验和 PR ready 状态确认。当前剩余项不是隐藏失败路径，而是明确后续工作：
 
-- 分阶段继续拆分 `server/relay-runtime.js` 和 `scripts/relay-mac-client.mjs` 的剩余状态机职责；当前剩余重点是 pending request、realtime tunnel、HTTP forwarding 和 connector loop。
+- 分阶段继续拆分 `server/relay-runtime.js` 和 `scripts/relay-mac-client.mjs` 的剩余状态机职责；当前剩余重点是 realtime tunnel、Mac connection、HTTP forwarding 和 connector loop。
 - 如产品需要多台 Mac 同时在线，再设计 explicit multi-Mac routing UI/API。
 - 如进入多人、长期公网或 hostile network 使用场景，再补 per-token request cap、长期日志审计、secret rotation 演练记录、告警/指标导出和真实 provider-ready realtime 门禁。
