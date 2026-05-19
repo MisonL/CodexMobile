@@ -98,6 +98,7 @@ node bin/codexmobile.mjs install --json
 node bin/codexmobile.mjs enable --json
 node bin/codexmobile.mjs disable --json
 node bin/codexmobile.mjs uninstall --json
+node bin/codexmobile.mjs relay-config --json
 ```
 
 发布为 npm 包后，等价入口为：
@@ -113,9 +114,22 @@ npx codexmobile install --json
 npx codexmobile enable --json
 npx codexmobile disable --json
 npx codexmobile uninstall --json
+npx codexmobile relay-config --json
 ```
 
-`doctor` 会检查 Node.js 版本、Codex 配置路径、默认 HTTP/HTTPS 端口、Tailscale 命令可用性和本机私网地址。`start` 会用后台进程运行 `codexmobile serve`，日志写入用户级日志目录；`stop` 只停止 CLI 状态文件记录的 CodexMobile 进程；`logs` 会读取最近日志并脱敏 relay secret、Bearer token 和 URL token；`status` 会返回用户级数据目录、日志目录、LaunchAgent 路径、plist 是否存在和 `launchctl` 是否已加载。`install --dry-run` 只输出将要创建的目录、plist 内容和将要执行的 `launchctl` 命令；`install` 会写入 plist、执行 `plutil -lint`，再调用 `launchctl bootstrap` 和 `kickstart`。`enable` 重新 bootstrap 并 kickstart 当前用户 LaunchAgent，`disable` 调用 `launchctl bootout`。`uninstall` 默认只移除 plist 并保留用户数据目录；删除用户数据必须显式同时传入 `--remove-data --confirm-remove-data`。
+`doctor` 会检查 Node.js 版本、Codex 配置路径、默认 HTTP/HTTPS 端口、Tailscale 命令可用性和本机私网地址。`start` 会用后台进程运行 `codexmobile serve`，日志写入用户级日志目录；`stop` 只停止 CLI 状态文件记录的 CodexMobile 进程；`logs` 会读取最近日志并脱敏 relay secret、Bearer token 和 URL token；`status` 会返回用户级数据目录、日志目录、LaunchAgent 路径、plist 是否存在、`launchctl` 是否已加载和脱敏后的 relay 配置。`install --dry-run` 只输出将要创建的目录、plist 内容和将要执行的 `launchctl` 命令；`install` 会写入 plist、执行 `plutil -lint`，再调用 `launchctl bootstrap` 和 `kickstart`。`enable` 重新 bootstrap 并 kickstart 当前用户 LaunchAgent，`disable` 调用 `launchctl bootout`。`uninstall` 默认只移除 plist 并保留用户数据目录；删除用户数据必须显式同时传入 `--remove-data --confirm-remove-data`。
+
+保存 Mac connector 的 relay 配置：
+
+```bash
+node bin/codexmobile.mjs relay-config \
+  --url wss://<space>.hf.space/relay/mac \
+  --secret <至少 32 字符的随机密钥> \
+  --local-url http://127.0.0.1:3321 \
+  --json
+```
+
+该配置写入用户级 `relay.json`，`relay-config --json` 和 `status --json` 只展示脱敏后的 secret。`npm run relay:mac` 会优先读取环境变量；环境变量未设置时，回退读取这份用户级配置。
 
 ## HuggingFace Space 中转模式
 
@@ -164,6 +178,12 @@ Mac 端需要先启动本地 CodexMobile，再启动 connector：
 
 ```bash
 npm start
+npm run relay:mac
+```
+
+如果没有先通过 `relay-config` 保存配置，也可以继续用环境变量启动 connector：
+
+```bash
 CODEXMOBILE_RELAY_URL=wss://<space>.hf.space/relay/mac \
 CODEXMOBILE_RELAY_SECRET=<同一个随机密钥> \
 CODEXMOBILE_RELAY_LOCAL_URL=http://127.0.0.1:3321 \

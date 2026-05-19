@@ -7,11 +7,22 @@ import {
   isStrongRelaySecret,
   parsePositiveInt
 } from '../server/relay-protocol.js';
+import { resolveRuntimePaths } from '../cli/paths.mjs';
+import { resolveRelayRuntimeConfig } from '../cli/relay-config.mjs';
 
-export const RELAY_URL = String(process.env.CODEXMOBILE_RELAY_URL || '').trim();
-export const RELAY_SECRET = String(process.env.CODEXMOBILE_RELAY_SECRET || '').trim();
+const runtimeConfig = await resolveRelayRuntimeConfig({
+  paths: resolveRuntimePaths({
+    platform: process.platform,
+    env: process.env,
+    cwd: process.cwd()
+  }),
+  env: process.env
+});
+
+export const RELAY_URL = runtimeConfig.relayUrl;
+export const RELAY_SECRET = runtimeConfig.relaySecret;
 export const DEVICE_NAME = String(process.env.CODEXMOBILE_RELAY_DEVICE_NAME || '').trim() || `${process.env.USER || 'mac'}-mac`;
-export const LOCAL_URL = String(process.env.CODEXMOBILE_RELAY_LOCAL_URL || 'http://127.0.0.1:3321').replace(/\/+$/, '');
+export const LOCAL_URL = runtimeConfig.localUrl.replace(/\/+$/, '');
 export const HEARTBEAT_MS = parsePositiveInt(process.env.CODEXMOBILE_RELAY_HEARTBEAT_MS, DEFAULT_RELAY_HEARTBEAT_MS);
 export const IDLE_HEARTBEAT_MS = parsePositiveInt(process.env.CODEXMOBILE_RELAY_IDLE_HEARTBEAT_MS, DEFAULT_RELAY_IDLE_HEARTBEAT_MS);
 export const REQUEST_TIMEOUT_MS = parsePositiveInt(process.env.CODEXMOBILE_RELAY_REQUEST_TIMEOUT_MS, DEFAULT_RELAY_REQUEST_TIMEOUT_MS);

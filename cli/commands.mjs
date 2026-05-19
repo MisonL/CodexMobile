@@ -4,6 +4,10 @@ import * as defaultLaunchAgent from './launch-agent.mjs';
 import { resolveRuntimePaths } from './paths.mjs';
 import * as defaultProcessManager from './process-manager.mjs';
 import {
+  readRelayConfig,
+  saveRelayConfig
+} from './relay-config.mjs';
+import {
   collectDoctorReport,
   collectStatusReport
 } from './status.mjs';
@@ -14,8 +18,27 @@ function hasFlag(args, flag) {
   return args.includes(flag);
 }
 
+function flagValue(args, flag) {
+  const index = args.indexOf(flag);
+  if (index < 0) {
+    return '';
+  }
+  return args[index + 1] || '';
+}
+
 function stripFlags(args) {
-  return args.filter((arg) => !arg.startsWith('--'));
+  const commands = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (!arg.startsWith('--')) {
+      commands.push(arg);
+      continue;
+    }
+    if (['--url', '--secret', '--local-url'].includes(arg)) {
+      index += 1;
+    }
+  }
+  return commands;
 }
 
 function writeOutput(options, text) {
@@ -182,26 +205,39 @@ async function runDisable(options) {
   };
 }
 
+function hasRelayConfigMutation(args) {
+  return hasFlag(args, '--url') || hasFlag(args, '--secret') || hasFlag(args, '--local-url');
+}
+
+async function runRelayConfig(args, options) {
+  const paths = resolveRuntimePaths(options);
+  if (!hasRelayConfigMutation(args)) {
+    const output = await readRelayConfig({ ...options, paths, redact: true });
+    return {
+      code: 0,
+      output
+    };
+  }
+  const output = await saveRelayConfig({
+    ...options,
+    paths,
+    relayUrl: flagValue(args, '--url'),
+    relaySecret: flagValue(args, '--secret'),
+    localUrl: flagValue(args, '--local-url')
+  });
+  return {
+    code: output.ok === false ? 1 : 0,
+    output
+  };
+}
+
 function runHelp() {
   return {
     code: 0,
     output: {
       command: 'help',
       ok: true,
-      commands: [
-        'doctor',
-        'status',
-        'install',
-        'install --dry-run',
-        'uninstall',
-        'enable',
-        'disable',
-        'start',
-        'stop',
-        'restart',
-        'logs',
-        'serve'
-      ]
+      commands: ['doctor', 'status', 'install', 'install --dry-run', 'uninstall', 'enable', 'disable', 'relay-config', 'start', 'stop', 'restart', 'logs', 'serve']
     }
   };
 }
@@ -224,6 +260,9 @@ async function routeCommand(command, args, options) {
   }
   if (command === 'disable') {
     return runDisable(options);
+  }
+  if (command === 'relay-config') {
+    return runRelayConfig(args, options);
   }
   if (command === 'start') {
     return runStart(options);

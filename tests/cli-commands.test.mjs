@@ -155,6 +155,51 @@ test('runCli routes LaunchAgent install and uninstall commands through injected 
   ]);
 });
 
+test('runCli saves and shows redacted relay connector config', async () => {
+  const options = await makeFixture();
+  const secret = '0123456789abcdef0123456789abcdef';
+  const saved = await runCli([
+    'relay-config',
+    '--url',
+    'wss://space.example/relay/mac',
+    '--secret',
+    secret,
+    '--local-url',
+    'http://127.0.0.1:3321',
+    '--json'
+  ], options);
+  const shown = await runCli(['relay-config', '--json'], options);
+  const status = await runCli(['status', '--json'], options);
+
+  assert.equal(saved.code, 0);
+  assert.equal(saved.output.command, 'relay-config');
+  assert.equal(saved.output.config.relaySecret, '[redacted]');
+  assert.equal(shown.code, 0);
+  assert.equal(shown.output.config.relayUrl, 'wss://space.example/relay/mac');
+  assert.equal(shown.output.config.relaySecret, '[redacted]');
+  assert.equal(status.output.relayConfig.configured, true);
+  assert.equal(status.output.relayConfig.config.relaySecret, '[redacted]');
+  assert.doesNotMatch(JSON.stringify(saved.output), new RegExp(secret));
+  assert.doesNotMatch(JSON.stringify(shown.output), new RegExp(secret));
+  assert.doesNotMatch(JSON.stringify(status.output), new RegExp(secret));
+});
+
+test('runCli rejects weak relay connector secret', async () => {
+  const options = await makeFixture();
+  const result = await runCli([
+    'relay-config',
+    '--url',
+    'wss://space.example/relay/mac',
+    '--secret',
+    'short-secret',
+    '--json'
+  ], options);
+
+  assert.equal(result.code, 1);
+  assert.equal(result.output.ok, false);
+  assert.match(result.output.error, /at least 32 characters/);
+});
+
 test('runCli returns macOS install dry-run plan without writing files', async () => {
   const options = await makeFixture();
   const result = await runCli(['install', '--dry-run', '--json'], options);

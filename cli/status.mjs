@@ -6,6 +6,7 @@ import os from 'node:os';
 import { resolveRuntimePaths } from './paths.mjs';
 import { collectManagedProcessStatus } from './process-manager.mjs';
 import { getMacLaunchAgentStatus } from './launch-agent.mjs';
+import { readRedactedRelayConfig } from './relay-config.mjs';
 
 const MIN_NODE_MAJOR = 20;
 const DEFAULT_HTTP_PORT = 3321;
@@ -141,12 +142,14 @@ export async function collectStatusReport(options = {}) {
   if (paths.platform === 'darwin') {
     launchAgent = await getMacLaunchAgentStatus({ ...options, paths });
   }
+  const relayConfig = await readRedactedRelayConfig({ ...options, paths });
 
   return {
     command: 'status',
     ok: true,
     process: processStatus,
     launchAgent,
+    relayConfig,
     urls: {
       localHttp: 'http://127.0.0.1:3321',
       localHttps: 'https://127.0.0.1:3443'
