@@ -36,6 +36,14 @@ export function startSpaceFixture({
         relayState: authenticated ? 'ready' : 'pairing_required',
         macConnected: authenticated,
         localStatus: { reachable: authenticated, checkedAt: new Date().toISOString() },
+        limits: {
+          browserTokenRequestsPerMinute: 120,
+          browserTokenRequestWindowMs: 60000
+        },
+        metrics: {
+          browserTokenRequestsTotal: authenticated ? 1 : 0,
+          browserTokenRateLimitedTotal: 0
+        },
         ...(exposeSecretMetadata ? { secrets: { previousConfigured: true } } : {}),
         ...(exposeSecretValue ? { secrets: { current: 'should-not-leak' } } : {})
       });

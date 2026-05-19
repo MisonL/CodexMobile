@@ -3,6 +3,12 @@ import WebSocket from 'ws';
 export const DEFAULT_TIMEOUT_MS = 10000;
 const FALLBACK_TEXT = 'Build the PWA with: npm run build';
 const SENSITIVE_KEY_PATTERN = /secret|token|authorization|cookie|pairingCode/i;
+const SAFE_STATUS_FIELD_NAMES = new Set([
+  'browserTokenRequestsPerMinute',
+  'browserTokenRequestWindowMs',
+  'browserTokenRequestsTotal',
+  'browserTokenRateLimitedTotal'
+]);
 const REALTIME_AVAILABILITY_ERRORS = new Set(['mac_offline', 'mac_local_offline']);
 export function normalizeSpaceBaseUrl(input) {
   const value = String(input || '').trim();
@@ -333,7 +339,7 @@ function findSensitiveKey(value, prefix = '') {
   for (const [key, child] of Object.entries(value)) {
     const path = prefix ? `${prefix}.${key}` : key;
     if (path.startsWith('secrets.') && path !== 'secrets.previousConfigured') return path;
-    if (SENSITIVE_KEY_PATTERN.test(key) && path !== 'secrets') return path;
+    if (SENSITIVE_KEY_PATTERN.test(key) && path !== 'secrets' && !SAFE_STATUS_FIELD_NAMES.has(key)) return path;
     const nested = findSensitiveKey(child, path);
     if (nested) return nested;
   }
