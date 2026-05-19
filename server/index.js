@@ -35,6 +35,16 @@ import { registerMobileSession } from './mobile-session-index.js';
 import { publicVoiceTranscriptionStatus, transcribeAudio } from './voice-transcriber.js';
 import { publicVoiceSpeechStatus, synthesizeSpeech } from './voice-speaker.js';
 import { publicVoiceRealtimeStatus, startVoiceRealtimeProxy } from './realtime-voice.js';
+import {
+  classifyUpload,
+  htmlEscape,
+  parseHeaderValue,
+  readBody,
+  readBuffer,
+  sanitizeFileName,
+  sendHtml,
+  sendJson
+} from './http-utils.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, '..');
@@ -219,31 +229,6 @@ function sessionHasActiveWork(sessionId) {
   }
 
   return false;
-}
-
-function sendJson(res, status, payload) {
-  res.writeHead(status, {
-    'content-type': 'application/json; charset=utf-8',
-    'cache-control': 'no-store'
-  });
-  res.end(JSON.stringify(payload));
-}
-
-function sendHtml(res, status, html) {
-  res.writeHead(status, {
-    'content-type': 'text/html; charset=utf-8',
-    'cache-control': 'no-store'
-  });
-  res.end(html);
-}
-
-function htmlEscape(value) {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }
 
 async function loadFeishuAuthState() {
@@ -467,78 +452,6 @@ function sendStaticContent(req, res, status, content, headers, ext) {
   nextHeaders['content-length'] = body.length;
   res.writeHead(status, nextHeaders);
   res.end(body);
-}
-
-function readBody(req) {
-  return new Promise((resolve, reject) => {
-    let body = '';
-    req.on('data', (chunk) => {
-      body += chunk;
-      if (body.length > MAX_JSON_BYTES) {
-        reject(new Error('Request body too large'));
-        req.destroy();
-      }
-    });
-    req.on('end', () => {
-      if (!body) {
-        resolve({});
-        return;
-      }
-      try {
-        resolve(JSON.parse(body));
-      } catch {
-        reject(new Error('Invalid JSON body'));
-      }
-    });
-    req.on('error', reject);
-  });
-}
-
-function readBuffer(req, maxBytes) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    let total = 0;
-    let settled = false;
-    req.on('data', (chunk) => {
-      if (settled) {
-        return;
-      }
-      total += chunk.length;
-      if (total > maxBytes) {
-        settled = true;
-        req.resume();
-        reject(new Error('Upload too large'));
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on('end', () => {
-      if (!settled) {
-        settled = true;
-        resolve(Buffer.concat(chunks));
-      }
-    });
-    req.on('error', (error) => {
-      if (!settled) {
-        settled = true;
-        reject(error);
-      }
-    });
-  });
-}
-
-function parseHeaderValue(value, key) {
-  const match = String(value || '').match(new RegExp(`${key}="([^"]*)"`));
-  return match ? match[1] : '';
-}
-
-function sanitizeFileName(fileName) {
-  const baseName = path.basename(String(fileName || 'upload.bin')).replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
-  return baseName || 'upload.bin';
-}
-
-function classifyUpload(mimeType) {
-  return String(mimeType || '').startsWith('image/') ? 'image' : 'file';
 }
 
 function parseMultipartFile(buffer, contentType, fieldName = 'file') {
@@ -954,7 +867,7 @@ async function handleApi(req, res, url) {
   }
 
   if (method === 'POST' && pathname === '/api/pair') {
-    const body = await readBody(req);
+    const body = await readBody(req, MAX_JSON_BYTES);
     const paired = await pairDevice({
       code: body.code,
       deviceName: body.deviceName,
@@ -1089,7 +1002,7 @@ async function handleApi(req, res, url) {
       return;
     }
 
-    const body = await readBody(req);
+    const body = await readBody(req, MAX_JSON_BYTES);
     const title = String(body.title || '').trim().slice(0, 52);
     if (!title) {
       sendJson(res, 400, { error: 'Title is required' });
@@ -1204,7 +1117,7 @@ async function handleApi(req, res, url) {
   if (method === 'POST' && pathname === '/api/voice/speech') {
     const startedAt = Date.now();
     try {
-      const body = await readBody(req);
+      const body = await readBody(req, MAX_JSON_BYTES);
       const config = getCacheSnapshot().config || {};
       const result = await synthesizeSpeech(body.text, config);
       console.log(`[voice] synthesized bytes=${result.data.length} provider=${result.provider} model=${result.model} voice=${result.voice} remote=${remoteAddress(req)}`);
@@ -1229,7 +1142,7 @@ async function handleApi(req, res, url) {
   }
 
   if (method === 'POST' && pathname === '/api/chat/send') {
-    const body = await readBody(req);
+    const body = await readBody(req, MAX_JSON_BYTES);
     const attachmentCount = Array.isArray(body.attachments) ? body.attachments.length : 0;
     console.log(
       `[chat] send request remote=${remoteAddress(req)} project=${body.projectId || ''} session=${body.sessionId || body.draftSessionId || ''} attachments=${attachmentCount}`
@@ -1400,7 +1313,7 @@ async function handleApi(req, res, url) {
   }
 
   if (method === 'POST' && pathname === '/api/chat/abort') {
-    const body = await readBody(req);
+    const body = await readBody(req, MAX_JSON_BYTES);
     console.log(`[chat] abort request remote=${remoteAddress(req)} turn=${body.turnId || ''} session=${body.sessionId || ''}`);
     const aborted = abortCodexTurn(body.turnId || body.sessionId);
     sendJson(res, aborted ? 200 : 404, { aborted });

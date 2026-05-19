@@ -40,6 +40,16 @@ jobs:
           node --check server/relay-http-static.js
           node --check server/relay-http-stream.js
           node --check server/relay-protocol.js
+          node --check server/index.js
+          node --check server/http-utils.js
+          node --check server/realtime-voice.js
+          node --check server/realtime-voice-config.js
+          node --check server/realtime-voice-handoff.js
+          node --check server/realtime-voice-providers.js
+          node --check server/lark-cli.js
+          node --check server/lark-cli-definitions.js
+          node --check server/lark-cli-runner.js
+          node --check server/lark-cli-status.js
           node --check scripts/relay-mac-client-backpressure.mjs
           node --check scripts/relay-mac-client-body.mjs
           node --check scripts/relay-mac-client-config.mjs
