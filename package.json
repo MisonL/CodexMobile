@@ -31,6 +31,7 @@
     "space:doctor": "node scripts/space-doctor.mjs",
     "space:verify": "node scripts/verify-hf-space.mjs",
     "test:cli": "node --test tests/cli-*.test.mjs",
+    "test:relay-runtime": "node --test tests/relay-runtime-*.test.mjs",
     "test:space-verify": "node --test tests/space-verify.test.mjs",
     "smoke:relay:browser-fixture": "node scripts/relay-browser-fixture.mjs",
     "asr:start": "node scripts/start-asr.mjs",
