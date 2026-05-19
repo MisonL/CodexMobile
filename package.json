@@ -4,6 +4,19 @@
   "description": "iPhone-first PWA bridge for using a local Codex setup over a private network.",
   "license": "MIT",
   "type": "module",
+  "bin": {
+    "codexmobile": "./bin/codexmobile.mjs"
+  },
+  "files": [
+    "asr-service/",
+    "bin/",
+    "cli/",
+    "client/dist/",
+    "server/",
+    "scripts/",
+    "README.md",
+    "package.json"
+  ],
   "scripts": {
     "dev:server": "node server/index.js",
     "dev:client": "vite --host 0.0.0.0 --config client/vite.config.js",
@@ -17,6 +30,7 @@
     "space:deploy": "node scripts/deploy-hf-space.mjs",
     "space:doctor": "node scripts/space-doctor.mjs",
     "space:verify": "node scripts/verify-hf-space.mjs",
+    "test:cli": "node --test tests/cli-*.test.mjs",
     "test:space-verify": "node --test tests/space-verify.test.mjs",
     "smoke:relay:browser-fixture": "node scripts/relay-browser-fixture.mjs",
     "asr:start": "node scripts/start-asr.mjs",

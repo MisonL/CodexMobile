@@ -81,6 +81,28 @@ http://<电脑的私网 IP>:3321
 
 第一次进入需要输入服务启动时打印的 6 位配对码。配对成功后，浏览器会保存设备 token，后续不需要每次重新输入。
 
+## npm CLI 预检
+
+当前分支开始提供 `codexmobile` CLI 的产品化安装骨架。第一批命令只做本机预检、状态查看和 macOS LaunchAgent 安装计划 dry-run，不会写入开机自启配置，也不会改变现有 `npm start` 使用方式。
+
+本仓库内可直接执行：
+
+```bash
+node bin/codexmobile.mjs doctor --json
+node bin/codexmobile.mjs status --json
+node bin/codexmobile.mjs install --dry-run --json
+```
+
+发布为 npm 包后，等价入口为：
+
+```bash
+npx codexmobile doctor --json
+npx codexmobile status --json
+npx codexmobile install --dry-run --json
+```
+
+`doctor` 会检查 Node.js 版本、Codex 配置路径、默认 HTTP/HTTPS 端口、Tailscale 命令可用性和本机私网地址。`status` 会返回用户级数据目录、日志目录、LaunchAgent 路径和当前 CLI 管理状态。`install --dry-run` 只输出将要创建的目录、plist 内容和将要执行的 `launchctl` 命令；真实安装、停止、卸载和日志跟踪在后续任务中实现。
+
 ## HuggingFace Space 中转模式
 
 中转模式用于手机无法直连 Mac 私有网络时访问 CodexMobile。公网入口运行在 HuggingFace Docker Space，Mac 上运行 connector 主动连到 Space，再由 Space 转发浏览器请求到 Mac 本地服务。
