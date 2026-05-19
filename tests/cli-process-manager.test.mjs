@@ -163,6 +163,72 @@ test('stopManagedServer removes stale managed state without killing a process', 
   );
 });
 
+test('stopManagedServer removes stale managed state when PID is reused by another process', async () => {
+  const paths = await makePaths();
+  await fs.mkdir(paths.runDir, { recursive: true });
+  await fs.writeFile(
+    paths.processStatePath,
+    JSON.stringify({
+      version: 1,
+      kind: 'codexmobile-server',
+      pid: 655,
+      command: ['/usr/local/bin/node', '/repo/bin/codexmobile.mjs', 'serve']
+    }),
+    'utf8'
+  );
+  const killCalls = [];
+  const result = await stopManagedServer({
+    paths,
+    isProcessRunning: () => true,
+    isManagedProcessAlive: () => false,
+    kill: (...args) => {
+      killCalls.push(args);
+      return true;
+    }
+  });
+
+  assert.equal(result.stopped, false);
+  assert.equal(result.stale, true);
+  assert.deepEqual(killCalls, []);
+  await assert.rejects(
+    fs.stat(paths.processStatePath),
+    (error) => error.code === 'ENOENT'
+  );
+});
+
+test('stopManagedServer verifies the live command before killing a managed PID', async () => {
+  const paths = await makePaths();
+  await fs.mkdir(paths.runDir, { recursive: true });
+  await fs.writeFile(
+    paths.processStatePath,
+    JSON.stringify({
+      version: 1,
+      kind: 'codexmobile-server',
+      pid: 656,
+      command: ['/usr/local/bin/node', '/repo/bin/codexmobile.mjs', 'serve']
+    }),
+    'utf8'
+  );
+  const killCalls = [];
+  const execCalls = [];
+  const result = await stopManagedServer({
+    paths,
+    isProcessRunning: () => true,
+    execFile: (command, args, options, callback) => {
+      execCalls.push({ command, args, options });
+      callback(null, '/usr/local/bin/node /repo/bin/codexmobile.mjs serve\n', '');
+    },
+    kill: (...args) => {
+      killCalls.push(args);
+      return true;
+    }
+  });
+
+  assert.equal(result.stopped, true);
+  assert.deepEqual(killCalls, [[656, 'SIGTERM']]);
+  assert.equal(execCalls[0].command, 'ps');
+});
+
 test('collectManagedProcessStatus reports managed state without killing processes', async () => {
   const paths = await makePaths();
   await fs.mkdir(paths.runDir, { recursive: true });

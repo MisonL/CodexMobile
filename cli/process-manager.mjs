@@ -1,4 +1,7 @@
-import { spawn as defaultSpawn } from 'node:child_process';
+import {
+  execFile as defaultExecFile,
+  spawn as defaultSpawn
+} from 'node:child_process';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
@@ -81,6 +84,40 @@ function isStoppableState(state) {
   return isManagedState(state) &&
     Array.isArray(state.command) &&
     state.command.includes('serve');
+}
+
+function execFilePromise(execFile, command, args) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, { timeout: 1000 }, (error, stdout) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(String(stdout || ''));
+    });
+  });
+}
+
+function commandMatchesState(commandLine, state) {
+  const text = String(commandLine || '');
+  const [, cliPath, command] = state.command || [];
+  return Boolean(cliPath && command && text.includes(cliPath) && text.includes(command));
+}
+
+async function isManagedProcessAlive(state, options = {}) {
+  if (typeof options.isManagedProcessAlive === 'function') {
+    return options.isManagedProcessAlive(state);
+  }
+  if (options.platform === 'win32' || process.platform === 'win32') {
+    return true;
+  }
+  const execFile = options.execFile || defaultExecFile;
+  try {
+    const commandLine = await execFilePromise(execFile, 'ps', ['-p', String(state.pid), '-o', 'command=']);
+    return commandMatchesState(commandLine, state);
+  } catch {
+    return false;
+  }
 }
 
 function childEnv(options) {
@@ -169,7 +206,7 @@ export async function stopManagedServer(options = {}) {
   }
 
   const status = await collectManagedProcessStatus(options);
-  if (!status.running) {
+  if (!status.running || !(await isManagedProcessAlive(state, options))) {
     await removeManagedState(options);
     return { command: 'stop', ok: true, stopped: false, stale: true, pid: state.pid };
   }

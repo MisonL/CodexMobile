@@ -25,9 +25,16 @@ export async function encodeResponseBody(response, { maxBodyBytes }) {
   }
   if (/application\/json/i.test(contentType)) {
     const text = buffer.toString('utf8');
+    const parsed = safeJsonParse(text);
+    if (parsed === null) {
+      return {
+        bodyEncoding: 'text',
+        body: text
+      };
+    }
     return {
       bodyEncoding: 'json',
-      body: safeJsonParse(text) ?? {}
+      body: parsed
     };
   }
   if (/^text\//i.test(contentType) || /charset=utf-8/i.test(contentType)) {
