@@ -49,14 +49,15 @@
 | `HOST=127.0.0.1 PORT=9798 npm start ... && CODEXMOBILE_URL=http://127.0.0.1:9798/api/status npm run smoke` | 0 | CI-style local server start and smoke passed; server stopped after the check. |
 | `npm run build` | 0 | Vite build passed. |
 | `npm run space:prepare` | 0 | Generated `dist/hf-space`, 50 files. |
+| `GIT_TERMINAL_PROMPT=0 npm run space:deploy -- --remote https://huggingface.co/spaces/misonL/codexmobile-relay` | 0 | Deployed latest branch package to Space; Space `main` moved from `cd2eb3f` to `bb8febc`. |
 | `npm run space:verify -- --url https://misonl-codexmobile-relay.hf.space --json` | 0 | Public checks passed 4/4; authenticated checks skipped without browser token or pair code. |
-| Temporary local server + Mac connector + `verifySpace({ token, chatMessage, requireMac: true, checkRealtime: true, timeoutMs: 300000 })` | 0 | Authenticated Space checks passed 8/8 after explicit local `/api/sync`; sync took 195369 ms and exposed 9 projects. |
+| Temporary local server + Mac connector + `verifySpace({ token, chatMessage, requireMac: true, checkRealtime: true, timeoutMs: 300000 })` | 0 | After latest Space deploy, authenticated checks passed 8/8; sync took 194220 ms and exposed 9 projects. |
 | `npm audit --audit-level=moderate` | 0 | Found 0 vulnerabilities. |
 | `git diff --check` | 0 | Passed. |
 
 ## 线上复验边界
 
-当前只读 Space verifier 通过，未连接 Mac 时线上状态为 `relayState=pairing_required macConnected=false`。随后使用临时本地 CodexMobile server、临时 `CODEXMOBILE_HOME`、固定 pairing code 和 ignored relay secret 启动 Mac connector，完成 authenticated Space verifier。
+当前分支最新 relay package 已重新部署到 HuggingFace Space commit `bb8febc`。只读 Space verifier 通过，未连接 Mac 时线上状态为 `relayState=pairing_required macConnected=false`。随后使用临时本地 CodexMobile server、临时 `CODEXMOBILE_HOME`、固定 pairing code 和 ignored relay secret 启动 Mac connector，完成 authenticated Space verifier。
 
 Authenticated checks:
 
