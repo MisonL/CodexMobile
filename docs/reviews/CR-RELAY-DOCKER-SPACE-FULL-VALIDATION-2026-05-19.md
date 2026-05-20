@@ -35,7 +35,7 @@
 
 | Item | Value |
 | --- | --- |
-| Image | `codexmobile-relay:20260519-events` |
+| Image | `codexmobile-relay:20260520-verify` |
 | Container | `codexmobile-relay-docker-smoke` |
 | Local URL | `http://127.0.0.1:9790` |
 | Mac local service | managed local service `http://127.0.0.1:3321` |
@@ -43,7 +43,7 @@
 
 Docker build:
 
-- `docker build -t codexmobile-relay:20260519-events .`
+- `docker build -t codexmobile-relay:20260520-verify .`
 - Exit: 0
 - Build included `npm ci` and `npm run build`.
 
@@ -89,16 +89,16 @@ Strict realtime provider-ready gate:
 | Space URL | `https://misonl-codexmobile-relay.hf.space` |
 | Deploy command | `GIT_TERMINAL_PROMPT=0 npm run space:deploy -- --remote https://huggingface.co/spaces/misonL/codexmobile-relay` |
 | Space branch | `main` |
-| Previous Space commit | `9276190` |
-| New Space commit | `ec18b5a` |
+| Previous Space commit | `ec18b5a` |
+| New Space commit | `9a41bb0` |
 
 Deploy result:
 
 - `npm run space:prepare` generated `dist/hf-space`.
 - Temporary Space git repo committed generated files as `deploy: CodexMobile Relay`.
-- `git push --force` updated Space `main` from `9276190` to `ec18b5a`.
+- `git push --force` updated Space `main` from `ec18b5a` to `9a41bb0`.
 - Exit: 0.
-- Space warm-up was checked through `/api/status`; the new relay process reported `relayStartedAt=2026-05-19T14:17:36.830Z`.
+- Space warm-up was checked through `/api/status`; the new relay process reported `relayStartedAt=2026-05-20T01:18:07.812Z`.
 
 Space public verifier:
 
@@ -151,7 +151,7 @@ Strict realtime provider-ready gate:
 
 - Temporary Mac connector processes used for Docker and Space authenticated checks were stopped after verification.
 - The managed local CodexMobile service was restarted without the temporary fixed pairing code environment.
-- Docker relay container remains running as `codexmobile-relay-docker-smoke` on `127.0.0.1:9790` using image `codexmobile-relay:20260519-events`.
+- Docker relay container remains running as `codexmobile-relay-docker-smoke` on `127.0.0.1:9790` using image `codexmobile-relay:20260520-verify`.
 - Post-cleanup status checks show both Docker and Space relays in `pairing_required` with `macConnected=false`, which is expected after stopping the temporary connectors.
 
 ## 结论

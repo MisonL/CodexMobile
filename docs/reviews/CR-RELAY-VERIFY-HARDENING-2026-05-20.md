@@ -47,7 +47,8 @@
 
 - Temporary Mac connector processes were stopped after authenticated verification.
 - Managed local CodexMobile service was restarted without the temporary fixed pairing code environment.
-- Docker relay and Space relay are back in public idle state: `pairing_required`, `macConnected=false`.
+- Docker relay container was rebuilt and restarted with image `codexmobile-relay:20260520-verify`; post-cleanup `/api/status` reported `relayStartedAt=2026-05-20T01:16:59.395Z`, `pairing_required`, `macConnected=false`.
+- HuggingFace Space `main` was redeployed to `9a41bb0`; post-cleanup `/api/status` reported `relayStartedAt=2026-05-20T01:18:07.812Z`, `pairing_required`, `macConnected=false`.
 
 ## 仍未改变的历史债
 
