@@ -68,7 +68,13 @@ test('verifySpace fails when Space serves fallback text instead of the built PWA
 });
 
 test('verifySpace can pair, verify browser websocket, and send chat when explicitly requested', async () => {
-  const fixture = await startSpaceFixture({ authenticated: true });
+  const fixture = await startSpaceFixture({
+    authenticated: true,
+    chatEvents: [
+      { type: 'status-update', status: 'running' },
+      { type: 'chat-complete', turnId: 'turn-1' }
+    ]
+  });
   try {
     const report = await verifySpace({
       spaceUrl: fixture.url,
@@ -84,6 +90,30 @@ test('verifySpace can pair, verify browser websocket, and send chat when explici
     assert.equal(statusFor(report, 'browserWebSocket'), 'passed');
     assert.equal(statusFor(report, 'realtimeWebSocket'), 'passed');
     assert.equal(statusFor(report, 'chatSend'), 'passed');
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('verifySpace fails chat check when websocket emits chat-error after accept', async () => {
+  const fixture = await startSpaceFixture({
+    authenticated: true,
+    chatEvents: [
+      { type: 'status-update', status: 'running' },
+      { type: 'chat-error', error: 'Codex turn failed' }
+    ]
+  });
+  try {
+    const report = await verifySpace({
+      spaceUrl: fixture.url,
+      token: 'valid-token',
+      chatMessage: 'verification',
+      timeoutMs: 1000,
+      requireMac: true
+    });
+    assert.equal(report.ok, false);
+    assert.equal(statusFor(report, 'chatSend'), 'failed');
+    assert.match(detailFor(report, 'chatSend'), /Codex turn failed/);
   } finally {
     await fixture.close();
   }

@@ -14,6 +14,7 @@ export function startSpaceFixture({
   authenticated = false,
   exposeSecretMetadata = false,
   exposeSecretValue = false,
+  chatEvents = [{ type: 'status-update', status: 'running' }],
   realtimeEvent = { type: 'voice.realtime.ready' },
   realtimeClose = null,
   closeAfterRealtimeEvent = false
@@ -68,7 +69,9 @@ export function startSpaceFixture({
     if (req.url === '/api/chat/send' && req.method === 'POST' && req.headers.authorization === 'Bearer valid-token') {
       sendJson(res, 202, { accepted: true, turnId: 'turn-1' });
       for (const ws of browserSockets) {
-        ws.send(JSON.stringify({ type: 'status-update', status: 'running' }));
+        for (const event of chatEvents) {
+          ws.send(JSON.stringify(event));
+        }
       }
       return;
     }

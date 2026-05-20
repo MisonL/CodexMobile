@@ -67,6 +67,7 @@ jobs:
           node --check scripts/relay-smoke-relay-scenarios.mjs
           node --check scripts/relay-smoke.mjs
           node --check scripts/verify-hf-space-core.mjs
+          node --check scripts/verify-hf-space-network.mjs
           node --check tests/space-verify.test.mjs
           node --check tests/space-verify-fixture.mjs
 

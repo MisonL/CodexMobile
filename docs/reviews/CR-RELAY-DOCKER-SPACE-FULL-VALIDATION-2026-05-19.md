@@ -23,13 +23,13 @@
 | --- | ---: | --- |
 | `npm run test:cli` | 0 | 47 tests passed. |
 | `npm run test:server` | 0 | 3 tests passed. Covers the warning classifier and full `emitCodexEvent` behavior for downgraded warnings vs real item errors. |
-| `npm run test:space-verify` | 0 | 11 tests passed. |
+| `npm run test:space-verify` | 0 | 12 tests passed. Includes a regression test that fails `chatSend` when WebSocket later emits `chat-error` after HTTP `202`. |
 | `npm run build` | 0 | Vite production build passed. |
 | `npm run smoke` | 0 | Local service status smoke passed. |
 | `npm run smoke:relay` | 0 | Relay smoke passed, including offline, invalid connector, ambiguous route, body limit, pending limit, reconnect, streaming, and realtime tunnel paths. |
-| Relay syntax check list | 0 | `server/relay-server.js`, `server/relay-runtime.js`, `server/relay-http.js`, `server/codex-runner.js`, `server/codex-runner-events.js`, `server/codex-runner-event-format.js`, `scripts/relay-mac-client.mjs`, `scripts/verify-hf-space-core.mjs`, `scripts/prepare-hf-space.mjs`, and `scripts/deploy-hf-space.mjs` passed `node --check`. |
+| Relay syntax check list | 0 | `server/relay-server.js`, `server/relay-runtime.js`, `server/relay-http.js`, `server/codex-runner.js`, `server/codex-runner-events.js`, `server/codex-runner-event-format.js`, `scripts/relay-mac-client.mjs`, `scripts/verify-hf-space-core.mjs`, `scripts/verify-hf-space-network.mjs`, `scripts/prepare-hf-space.mjs`, and `scripts/deploy-hf-space.mjs` passed `node --check`. |
 | `git diff --check` | 0 | Passed. |
-| Complexity line check | 0 | `server/codex-runner.js` 257 lines, `server/codex-runner-events.js` 202 lines, `server/codex-runner-event-format.js` 135 lines. |
+| Complexity line check | 0 | `server/codex-runner.js` 257 lines, `server/codex-runner-events.js` 202 lines, `server/codex-runner-event-format.js` 135 lines, `scripts/verify-hf-space-core.mjs` 293 lines, `scripts/verify-hf-space-network.mjs` 84 lines. |
 
 ## 本地 Docker 部署
 
@@ -68,7 +68,7 @@ Docker authenticated verifier:
 | Authenticated projects | passed, `projects=9` |
 | Browser WebSocket | passed, `relayState=ready` |
 | Realtime WebSocket tunnel | passed, tunnel reached Mac and returned explicit provider configuration error |
-| Chat send | passed, returned `202` |
+| Chat send | passed, returned `202` and terminal `chat-complete` |
 
 Additional Docker chat terminal check:
 
@@ -128,7 +128,7 @@ Space authenticated verifier:
 | Authenticated projects | passed, `projects=9` |
 | Browser WebSocket | passed, `relayState=ready` |
 | Realtime WebSocket tunnel | passed, tunnel reached Mac and returned explicit provider configuration error |
-| Chat send | passed, returned `202` |
+| Chat send | passed, returned `202` and terminal `chat-complete` |
 
 Additional Space chat terminal check:
 

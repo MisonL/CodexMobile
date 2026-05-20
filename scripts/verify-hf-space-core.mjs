@@ -1,4 +1,9 @@
-import WebSocket from 'ws';
+import {
+  authHeaders,
+  requestJsonOrText,
+  waitForWsEvent,
+  wsOrigin
+} from './verify-hf-space-network.mjs';
 
 export const DEFAULT_TIMEOUT_MS = 10000;
 const FALLBACK_TEXT = 'Build the PWA with: npm run build';
@@ -133,7 +138,7 @@ async function runAuthenticatedChecks(report, context, options) {
     skip(report, 'chatSend', 'Chat send', 'missing --chat-message');
     return;
   }
-  await runCheck(report, 'chatSend', 'Chat send returns 202', () => {
+  await runCheck(report, 'chatSend', 'Chat reaches terminal success', () => {
     return verifyChatSend(report.spaceUrl, context, options, report.timeoutMs);
   });
 }
@@ -224,8 +229,7 @@ async function verifyChatSend(spaceUrl, context, options, timeoutMs) {
   const projectId = options.projectId || context.projects[0]?.id;
   if (!projectId) throw new Error('missing project id for chat send.');
   const wsUrl = `${wsOrigin(spaceUrl)}/ws?token=${encodeURIComponent(context.token)}`;
-  const isChatEvent = (payload) => ['status-update', 'assistant-update', 'chat-complete'].includes(payload.type);
-  const event = await waitForWsEvent(wsUrl, timeoutMs, isChatEvent, async () => {
+  const event = await waitForWsEvent(wsUrl, timeoutMs, isChatTerminalEvent, async () => {
       const result = await requestJsonOrText(`${spaceUrl}/api/chat/send`, {
         timeoutMs, method: 'POST',
         headers: { ...authHeaders(context.token), 'content-type': 'application/json' },
@@ -234,66 +238,13 @@ async function verifyChatSend(spaceUrl, context, options, timeoutMs) {
       if (result.status !== 202) throw new Error(`expected 202, got ${result.status}`);
     });
   if (!event?.type) throw new Error('chat websocket event was not received.');
-  return `projectId=${projectId}`;
-}
-async function requestJsonOrText(url, { timeoutMs, ...options } = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs || DEFAULT_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
-    const text = await response.text();
-    return { status: response.status, headers: response.headers, text, data: safeJson(text) };
-  } finally {
-    clearTimeout(timer);
+  if (event.type === 'chat-error') {
+    throw new Error(event.error || 'chat-error');
   }
+  return `projectId=${projectId} terminal=${event.type}`;
 }
-function waitForWsEvent(wsUrl, timeoutMs, predicate, afterOpen = null) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(wsUrl);
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      ws.terminate();
-      reject(new Error('timed out waiting for browser WebSocket event'));
-    }, timeoutMs || DEFAULT_TIMEOUT_MS);
-    const finish = (handler, value, close = true) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (close && [ws.OPEN, ws.CONNECTING].includes(ws.readyState)) {
-        ws.close();
-      }
-      handler(value);
-    };
-    const fail = (error) => {
-      finish(reject, error);
-    };
-    if (afterOpen) {
-      ws.once('open', () => Promise.resolve().then(afterOpen).catch(fail));
-    }
-    ws.on('message', (raw) => {
-      const payload = safeJson(raw.toString());
-      if (!payload || !predicate(payload)) return;
-      finish(resolve, payload);
-    });
-    ws.on('unexpected-response', (_request, response) => {
-      finish(reject, new Error(`browser WebSocket rejected with ${response.statusCode}`), false);
-    });
-    ws.on('error', (error) => {
-      finish(reject, error, false);
-    });
-    ws.on('close', (code, reason) => {
-      const detail = reason?.toString() || '';
-      setImmediate(() => {
-        finish(
-          reject,
-          new Error(`browser WebSocket closed before matching event: code=${code}${detail ? ` reason=${detail.slice(0, 120)}` : ''}`),
-          false
-        );
-      });
-    });
-  });
+function isChatTerminalEvent(payload) {
+  return payload.type === 'chat-complete' || payload.type === 'chat-error';
 }
 function runCheck(report, id, label, action) {
   return Promise.resolve()
@@ -318,21 +269,6 @@ function finalize(report) {
     skipped: report.checks.filter((check) => check.status === 'skipped').length
   };
   return report;
-}
-function authHeaders(token) {
-  return { authorization: `Bearer ${token}` };
-}
-function wsOrigin(spaceUrl) {
-  const url = new URL(spaceUrl);
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-  return url.origin;
-}
-function safeJson(text) {
-  try {
-    return text ? JSON.parse(text) : {};
-  } catch {
-    return {};
-  }
 }
 function findSensitiveKey(value, prefix = '') {
   if (!value || typeof value !== 'object') return '';
