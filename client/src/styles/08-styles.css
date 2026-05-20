@@ -1,0 +1,285 @@
+
+.voice-dialog-line.is-user {
+  background: #eef5ff;
+}
+
+.voice-dialog-handoff {
+  margin-top: 12px;
+}
+
+.voice-dialog-handoff textarea {
+  width: 100%;
+  min-height: 148px;
+  resize: vertical;
+  border: 1px solid rgba(209, 213, 219, 0.92);
+  border-radius: 10px;
+  padding: 10px;
+  color: var(--text);
+  background: #fbfcfa;
+  font: inherit;
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.voice-dialog-handoff textarea:focus {
+  outline: none;
+  border-color: rgba(23, 78, 184, 0.48);
+  box-shadow: 0 0 0 3px rgba(23, 78, 184, 0.12);
+}
+
+.voice-dialog-handoff-actions {
+  flex-wrap: wrap;
+}
+
+.voice-dialog-handoff-actions button {
+  min-width: 104px;
+}
+
+.voice-dialog-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.voice-dialog-actions button {
+  flex: 1 1 0;
+  min-height: 38px;
+  border: 0;
+  border-radius: 10px;
+  font-weight: 650;
+  font-size: 14px;
+}
+
+.voice-dialog-primary {
+  color: #fff;
+  background: #1f2328;
+}
+
+.voice-dialog-primary.is-listening {
+  background: var(--green);
+}
+
+.voice-dialog-primary:disabled {
+  opacity: 0.52;
+}
+
+.voice-dialog-secondary {
+  color: #4b5563;
+  background: #eef0ec;
+}
+
+[data-theme="dark"] .composer-wrap {
+  background: rgba(23, 23, 23, 0.94);
+  border-top-color: rgba(48, 48, 48, 0.9);
+}
+
+[data-theme="dark"] .composer-menu {
+  border-color: #303030;
+  background: rgba(31, 31, 31, 0.98);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.34);
+}
+
+[data-theme="dark"] .menu-section-label {
+  color: var(--muted);
+}
+
+[data-theme="dark"] .menu-divider {
+  background: #303030;
+}
+
+[data-theme="dark"] .composer-menu button {
+  color: #e4e4e7;
+}
+
+[data-theme="dark"] .composer-menu button.is-selected {
+  color: var(--text);
+  background: #303030;
+}
+
+[data-theme="dark"] .composer {
+  border-color: #303030;
+  background: #202020;
+  box-shadow: none;
+}
+
+[data-theme="dark"] .attachment-chip {
+  color: #e4e4e7;
+  background: #303030;
+}
+
+[data-theme="dark"] .attachment-chip button {
+  color: #d4d4d8;
+}
+
+[data-theme="dark"] .composer textarea::placeholder {
+  color: #85858e;
+}
+
+[data-theme="dark"] .permission-pill,
+[data-theme="dark"] .model-select {
+  color: #d4d4d8;
+}
+
+[data-theme="dark"] .dialog-button {
+  color: #e4e4e7;
+  background: #303030;
+}
+
+[data-theme="dark"] .dialog-button.is-active {
+  color: #171717;
+  background: #f4f4f5;
+}
+
+[data-theme="dark"] .voice-button {
+  color: #e4e4e7;
+  background: #303030;
+}
+
+[data-theme="dark"] .voice-button.is-listening,
+[data-theme="dark"] .voice-button.is-recording {
+  color: #171717;
+  background: var(--green);
+}
+
+[data-theme="dark"] .voice-button.is-transcribing,
+[data-theme="dark"] .voice-button.is-sending {
+  color: #171717;
+  background: #d4d4d8;
+}
+
+[data-theme="dark"] .send-button {
+  color: #171717;
+  background: #f4f4f5;
+}
+
+[data-theme="dark"] .send-button.is-running {
+  color: #ffffff;
+  background: var(--danger);
+}
+
+[data-theme="dark"] .voice-popover {
+  color: #b6f2d4;
+  background: #242424;
+  border-color: rgba(55, 197, 138, 0.24);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.34);
+}
+
+[data-theme="dark"] .voice-popover.is-error {
+  color: #ffb4ae;
+  border-color: rgba(255, 107, 98, 0.28);
+}
+
+[data-theme="dark"] .voice-dialog-backdrop {
+  background: rgba(0, 0, 0, 0.42);
+}
+
+[data-theme="dark"] .voice-dialog-panel {
+  border-color: #303030;
+  background: #202020;
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.42);
+}
+
+[data-theme="dark"] .voice-dialog-header span {
+  color: var(--text);
+}
+
+[data-theme="dark"] .voice-dialog-header button {
+  color: #e4e4e7;
+  background: #303030;
+}
+
+[data-theme="dark"] .voice-dialog-orb {
+  color: #e4e4e7;
+  background: #303030;
+}
+
+[data-theme="dark"] .voice-dialog-orb.is-listening {
+  color: #171717;
+  background: var(--green);
+}
+
+[data-theme="dark"] .voice-dialog-orb.is-speaking {
+  color: #171717;
+  background: #f4f4f5;
+}
+
+[data-theme="dark"] .voice-dialog-status {
+  color: #d4d4d8;
+}
+
+[data-theme="dark"] .voice-dialog-status.is-error {
+  color: #ffb4ae;
+}
+
+[data-theme="dark"] .voice-dialog-meta {
+  color: #a1a1aa;
+}
+
+[data-theme="dark"] .voice-dialog-line {
+  color: #e4e4e7;
+  background: #2a2a2a;
+}
+
+[data-theme="dark"] .voice-dialog-line.is-user {
+  background: #253044;
+}
+
+[data-theme="dark"] .voice-dialog-handoff textarea {
+  border-color: #3f3f46;
+  color: #e4e4e7;
+  background: #252525;
+}
+
+[data-theme="dark"] .voice-dialog-secondary {
+  color: #e4e4e7;
+  background: #303030;
+}
+
+.pairing-screen {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 28px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.pairing-mark {
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border-radius: 22px;
+  color: #fff;
+  background: #1f2937;
+  margin-bottom: 20px;
+}
+
+.pairing-screen h1 {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.08;
+}
+
+.pairing-screen p {
+  margin: 9px 0 22px;
+  color: var(--muted);
+}
+
+.pairing-form {
+  display: flex;
+  gap: 10px;
+}
+
+.pairing-form input {
+  min-width: 0;
+  flex: 1;
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  outline: 0;
+  background: #fff;
+  letter-spacing: 0;
+}
