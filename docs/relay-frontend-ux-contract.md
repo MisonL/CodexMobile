@@ -28,7 +28,7 @@
 | `mac_offline` | `macConnected=false` | Mac 未连接 | 禁用发送、上传、语音、图片；允许刷新状态 | 是 |
 | `mac_local_offline` | `localStatus.reachable=false` | 本地服务离线 | 禁用业务操作；提示先启动 Mac 本地服务 | 是 |
 | `ready` | `authenticated=true`、`macConnected=true`、`localStatus.reachable=true` | 已连接 | 允许文本、普通 `/ws`、streaming media 与 realtime voice | 是 |
-| `degraded` | 计数器显示 timeout 或 heartbeat miss 上升 | 连接不稳定 | 允许轻量操作，显示非阻塞提示 | 是 |
+| `degraded` | Mac heartbeat miss 计数器上升 | 连接不稳定 | 允许轻量操作，显示非阻塞提示 | 是 |
 | `rate_limited` | 429 `relay_rate_limited` | 请求过快 | 禁用触发该限流的按钮到 `retryAfter` | 延迟 |
 | `unsupported` | 501 `relay_streaming_required`、`relay_realtime_unsupported` 或 `relay_realtime_http_upgrade_required` | 中转暂不支持 | 显示功能级提示，不清除登录态 | 否 |
 | `disconnected` | 浏览器 `/ws` 断开且 HTTP status 不可用 | 已断开 | 保留页面状态，禁用新请求 | 是 |

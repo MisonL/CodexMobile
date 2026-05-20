@@ -188,6 +188,8 @@ CODEXMOBILE_RELAY_DEVICE_NAME=<mac-name> \
 npm run relay:mac
 ```
 
+connector 会默认每 4 分钟请求一次 Space 同源 `/api/status?keepalive=1`，避免 HuggingFace Space 在只有空闲 WebSocket 长连接时自动休眠。需要调整时设置 `CODEXMOBILE_RELAY_KEEPALIVE_MS=<milliseconds>`；活动间隔下限为 60000；设为 `0` 表示显式关闭。
+
 Mac 侧通过条件：
 
 - connector 日志出现 `state=online`。

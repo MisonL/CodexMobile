@@ -10,6 +10,7 @@ import {
   DEVICE_NAME,
   HEARTBEAT_MS,
   IDLE_HEARTBEAT_MS,
+  RELAY_KEEPALIVE_MS,
   RELAY_SECRET,
   RELAY_URL,
   connectorInstanceId,
@@ -27,6 +28,7 @@ import { createHttpForwarder } from './relay-mac-client-http.mjs';
 import { createLocalServiceMonitor } from './relay-mac-client-local.mjs';
 import { createRealtimeTunnelClient } from './relay-mac-client-realtime.mjs';
 import { waitForSocketBackpressure } from './relay-mac-client-backpressure.mjs';
+import { createRelayKeepalive } from './relay-mac-client-keepalive.mjs';
 
 let ws = null;
 let relayEpoch = 0;
@@ -55,6 +57,7 @@ const realtime = createRealtimeTunnelClient({
   getRelayEpoch: () => relayEpoch,
   waitForRelayBackpressure: waitForConnectorBackpressure
 });
+let relayKeepalive = null;
 
 function noteRelayActive() {
   relayActiveUntilMs = Date.now() + ACTIVE_RECONNECT_CAP_MS;
@@ -222,17 +225,25 @@ function connect() {
 function main() {
   process.on('SIGINT', () => {
     closing = true;
+    relayKeepalive?.stop();
     ws?.close();
     process.exit(0);
   });
 
   process.on('SIGTERM', () => {
     closing = true;
+    relayKeepalive?.stop();
     ws?.close();
     process.exit(0);
   });
 
   requireConfig();
+  relayKeepalive = createRelayKeepalive({
+    relayUrl: RELAY_URL,
+    intervalMs: RELAY_KEEPALIVE_MS,
+    logState
+  });
+  relayKeepalive.start();
   localService.startStatusLoop();
   connect();
 }

@@ -241,12 +241,13 @@ Space 分配：
 
 ## 8. 心跳与 HuggingFace 休眠
 
-connector 不得试图用持续人工流量阻止 HuggingFace 免费层休眠。
+Mac connector 默认使用低频 HTTP keepalive 访问 Space 同源 `/api/status?keepalive=1`，避免只有空闲 WebSocket 长连接时 Space 自动休眠。该机制必须显式可配置、可关闭、可观测，不得携带 relay secret 或浏览器 token。
 
 心跳策略：
 
 - 活跃模式：存在浏览器 socket 或进行中请求时，每 15 秒心跳一次。
 - 空闲模式：退避到 60-300 秒心跳，具体可配置。
+- Space keepalive：默认 240 秒，活动间隔下限 60 秒，`CODEXMOBILE_RELAY_KEEPALIVE_MS=0` 表示关闭。
 - 重连退避：初始 1 秒，前几次最大 30 秒，长空闲上限 5 分钟。
 - 稳定在线 60 秒后重置退避。
 

@@ -378,7 +378,7 @@ GET http://127.0.0.1:3321/api/status
 - 心跳 miss 阈值：2。
 - 空闲心跳间隔：60-300 秒。
 
-connector 不应试图用持续人工流量阻止 HuggingFace 免费层休眠。有浏览器 socket 或请求时使用活跃心跳；relay 未被使用时进入长空闲退避。
+connector 默认使用低频 HTTP keepalive 请求 Space 同源 `/api/status?keepalive=1`，避免只有空闲 WebSocket 长连接时 Space 自动休眠；默认间隔 240 秒，活动间隔下限 60 秒，`CODEXMOBILE_RELAY_KEEPALIVE_MS=0` 表示关闭。有浏览器 socket 或请求时继续使用活跃 WebSocket 心跳；relay 未被使用时 WebSocket 心跳进入长空闲退避。
 
 ## 11. 安全规则
 

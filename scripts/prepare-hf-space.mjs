@@ -52,6 +52,11 @@ CODEXMOBILE_RELAY_TOKEN_REQUESTS_PER_MINUTE=120
 CODEXMOBILE_RELAY_TOKEN_REQUEST_WINDOW_MS=60000
 \`\`\`
 
+Mac connector defaults to an unauthenticated HTTP keepalive against
+\`/api/status?keepalive=1\` every 240000 ms. Active intervals below 60000 ms are
+ignored. Set \`CODEXMOBILE_RELAY_KEEPALIVE_MS=0\` on the connector only when you
+explicitly want to disable that Space wakeup traffic.
+
 Configure Space secrets:
 
 \`\`\`text

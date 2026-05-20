@@ -210,6 +210,8 @@ CODEXMOBILE_RELAY_LOCAL_URL=http://127.0.0.1:3321 \
 npm run relay:mac
 ```
 
+Mac connector 默认每 4 分钟向 Space 同源 `/api/status?keepalive=1` 发送一次不带密钥的 HTTP GET，用于避免 Space 因长时间只有 WebSocket 空闲连接而自动休眠。可通过 `CODEXMOBILE_RELAY_KEEPALIVE_MS=<毫秒>` 调整间隔；活动间隔下限为 60000；设为 `0` 表示显式关闭。
+
 本地 relay smoke：
 
 ```bash
@@ -271,6 +273,7 @@ npm run start:env
 - `CODEXMOBILE_RELAY_SECRET`：Space 和 Mac connector 共享的当前 relay 密钥，至少 32 字符
 - `CODEXMOBILE_RELAY_PREVIOUS_SECRET`：可选旧 relay 密钥，只用于 secret rotation grace window，完成迁移后应清空
 - `CODEXMOBILE_RELAY_LOCAL_URL`：Mac connector 转发到的本地 CodexMobile 地址，默认 `http://127.0.0.1:3321`
+- `CODEXMOBILE_RELAY_KEEPALIVE_MS`：Mac connector 对 Space 的 HTTP keepalive 间隔，默认 `240000`，活动间隔下限 `60000`，设为 `0` 可关闭
 - `CODEXMOBILE_RELAY_PENDING_REQUESTS_MAX`：Space 全局 pending relay 请求上限，默认 `64`
 - `CODEXMOBILE_RELAY_BROWSER_PENDING_REQUESTS_MAX`：单浏览器 token pending relay 请求上限，默认 `6`
 

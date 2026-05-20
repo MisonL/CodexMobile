@@ -23,7 +23,7 @@ relay 模式是增量部署目标，必须兼容现有 CodexMobile 本地直连�
 - 环境变量和 secrets 在 Space Settings 中配置。
 - 默认运行磁盘视为 ephemeral。relay 状态必须能在磁盘丢失后通过 Mac 重连和浏览器 token 复验恢复。
 - Space 可能休眠或重启。Mac connector 和手机浏览器必须容忍重连。
-- relay 不得试图用人工心跳流量让免费 Space 永久保持唤醒。
+- Mac connector 默认使用低频 HTTP keepalive 请求 Space 同源 `/api/status?keepalive=1`，避免只有空闲 WebSocket 长连接时 Space 自动休眠；该机制必须可配置、可关闭，且不得携带密钥或浏览器 token。
 
 relay 正确性不得依赖持久化存储。
 
