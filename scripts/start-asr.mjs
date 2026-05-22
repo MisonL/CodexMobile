@@ -1,10 +1,11 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { CODEXMOBILE_MODEL_CACHE_DIR } from '../server/runtime-paths.js';
 
 const root = path.resolve(import.meta.dirname, '..');
 const serviceDir = path.join(root, 'asr-service');
-const cacheDir = path.join(root, '.codexmobile', 'model-cache');
+const cacheDir = CODEXMOBILE_MODEL_CACHE_DIR;
 const containerName = process.env.CODEXMOBILE_ASR_CONTAINER || 'codexmobile-sensevoice-asr';
 const legacyContainerName = process.env.CODEXMOBILE_ASR_LEGACY_CONTAINER || 'codexmobile-asr';
 const image = process.env.CODEXMOBILE_ASR_IMAGE || 'codexmobile-sensevoice-asr:latest';

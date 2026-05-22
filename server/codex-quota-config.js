@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { statePath } from './runtime-paths.js';
 
 export const DEFAULT_CLIPROXY_CONFIG = process.platform === 'win32'
   ? 'D:\\CLIProxyAPI\\config.yaml'
@@ -9,7 +10,7 @@ export const DEFAULT_AUTH_DIR = path.join(os.homedir(), '.cli-proxy-api');
 export const CODEX_USAGE_URL = 'https://chatgpt.com/backend-api/wham/usage';
 export const REQUEST_TIMEOUT_MS = 18_000;
 export const MANAGEMENT_TIMEOUT_MS = 30_000;
-export const FIXED_PAIRING_CODE_FILE = path.join(process.cwd(), '.codexmobile', 'state', 'pairing-code.txt');
+export const FIXED_PAIRING_CODE_FILE = statePath('pairing-code.txt');
 
 export function stripQuotes(value) {
   const trimmed = String(value || '').trim();

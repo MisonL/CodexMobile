@@ -1,12 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { DEFAULT_OPENAI_COMPATIBLE_BASE_URL, openAICompatibleConfig } from './provider-api.js';
+import { CODEXMOBILE_GENERATED_ROOT } from './runtime-paths.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT_DIR = path.resolve(__dirname, '..');
-
-export const GENERATED_ROOT = path.join(ROOT_DIR, '.codexmobile', 'generated');
+export const GENERATED_ROOT = CODEXMOBILE_GENERATED_ROOT;
 export const DEFAULT_IMAGE_BASE_URL = DEFAULT_OPENAI_COMPATIBLE_BASE_URL;
 export const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
 export const IMAGE_TIMEOUT_MS = Number(process.env.CODEXMOBILE_IMAGE_TIMEOUT_MS || 420000);

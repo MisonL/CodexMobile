@@ -1,10 +1,11 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { CODEXMOBILE_STATE_DIR, statePath } from './runtime-paths.js';
 
-export const DATA_DIR = process.env.CODEXMOBILE_HOME || path.join(process.cwd(), '.codexmobile', 'state');
-const STATE_FILE = path.join(DATA_DIR, 'auth-state.json');
-const FIXED_PAIRING_CODE_FILE = path.join(DATA_DIR, 'pairing-code.txt');
+export const DATA_DIR = CODEXMOBILE_STATE_DIR;
+const STATE_FILE = statePath('auth-state.json');
+const FIXED_PAIRING_CODE_FILE = statePath('pairing-code.txt');
 const PAIRING_CODE_PATTERN = /^\d{6}$/;
 
 let authState = null;

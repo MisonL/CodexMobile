@@ -1,9 +1,10 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { CODEXMOBILE_DATA_ROOT } from '../server/runtime-paths.js';
 
 const root = path.resolve(import.meta.dirname, '..');
-const logDir = path.join(root, '.codexmobile');
+const logDir = CODEXMOBILE_DATA_ROOT;
 fs.mkdirSync(logDir, { recursive: true });
 
 const outPath = path.join(logDir, 'server.out.log');

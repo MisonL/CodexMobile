@@ -1,11 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { CODEXMOBILE_STATE_DIR, statePath } from './runtime-paths.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT_DIR = path.resolve(__dirname, '..');
-const STATE_DIR = path.join(ROOT_DIR, '.codexmobile', 'state');
-const INDEX_PATH = path.join(STATE_DIR, 'mobile-sessions.json');
+const STATE_DIR = CODEXMOBILE_STATE_DIR;
+const INDEX_PATH = statePath('mobile-sessions.json');
 const MAX_SESSIONS = 300;
 
 async function readIndexFile() {

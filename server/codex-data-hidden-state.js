@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { statePath } from './runtime-paths.js';
 
-export const DELETED_MESSAGES_PATH = path.join(process.cwd(), '.codexmobile', 'state', 'deleted-messages.json');
-export const HIDDEN_SESSIONS_PATH = path.join(process.cwd(), '.codexmobile', 'state', 'hidden-sessions.json');
+export const DELETED_MESSAGES_PATH = statePath('deleted-messages.json');
+export const HIDDEN_SESSIONS_PATH = statePath('hidden-sessions.json');
 
 
 export function emptyDeletedMessagesState() {

@@ -262,7 +262,7 @@ npm run start:env
 - `CODEXMOBILE_PUBLIC_URL`：手机访问用的公开私网地址
 - `CODEXMOBILE_PAIRING_CODE`：可选固定 6 位配对码；不设置则启动时随机生成
 - `CODEX_HOME`：Codex 配置目录，默认 `~/.codex`
-- `CODEXMOBILE_HOME`：覆盖 CLI 和服务的本地状态目录；CLI 未设置时按平台选择用户级目录，例如 macOS `~/Library/Application Support/CodexMobile`
+- `CODEXMOBILE_HOME`：覆盖 CLI 和服务的本地数据根目录；`state/`、`uploads/`、`generated/`、`tls/` 等从该目录派生。CLI 未设置时按平台选择用户级目录，例如 macOS `~/Library/Application Support/CodexMobile`
 - `CODEXMOBILE_FEISHU_APP_ID` / `CODEXMOBILE_FEISHU_APP_SECRET`：可选飞书应用凭证，用于 `lark-cli` 文档集成
 - `LARK_APP_ID` / `LARK_APP_SECRET`：可选飞书凭证别名，供 `lark-cli` 和 Codex 子进程读取
 - `CLIPROXYAPI_CONFIG`：CLIProxyAPI 配置文件路径
@@ -315,7 +315,7 @@ http://127.0.0.1:8000/v1/audio/transcriptions
 - `CODEXMOBILE_IMAGE_MODEL`
 - `CODEXMOBILE_IMAGE_TIMEOUT_MS`
 
-生成的图片默认保存到 `.codexmobile/generated`，不会进入 Git。
+生成的图片默认保存到 `CODEXMOBILE_HOME/generated`；未设置 `CODEXMOBILE_HOME` 时保存到仓库 `.codexmobile/generated`，不会进入 Git。
 
 ## CLIProxyAPI 额度查询
 
@@ -334,7 +334,7 @@ http://127.0.0.1:8000/v1/audio/transcriptions
 - `npm run build`：构建 PWA 到 `client/dist`
 - `npm start`：启动 API、WebSocket 和构建后的 PWA
 - `npm run start:env`：读取 `.env` 后启动
-- `npm run start:bg`：后台启动服务，日志写入 `.codexmobile`
+- `npm run start:bg`：后台启动服务，日志写入 `CODEXMOBILE_HOME`；未设置时写入仓库 `.codexmobile`
 - `npm run start:relay`：启动 HuggingFace Space relay server
 - `npm run relay:mac`：启动 Mac connector，主动连接 Space relay
 - `npm run smoke:relay`：运行 relay 离线、转发、事件和重连 smoke
@@ -355,8 +355,8 @@ http://127.0.0.1:8000/v1/audio/transcriptions
 
 ## 安全说明
 
-- 配对 token 存储在 `.codexmobile/state`
-- 上传文件和生成图片存储在 `.codexmobile`
+- 配对 token 存储在 `CODEXMOBILE_HOME/state`；未设置时存储在仓库 `.codexmobile/state`
+- 上传文件和生成图片存储在 `CODEXMOBILE_HOME/uploads` 和 `CODEXMOBILE_HOME/generated`；未设置时存储在仓库 `.codexmobile`
 - `.env.example` 只包含占位配置，不包含真实密钥
 - `.gitignore` 已排除 `.env`、`.codexmobile`、证书、日志、构建产物和依赖目录
 - CLIProxyAPI / OpenAI key 应通过环境变量或本地配置文件提供

@@ -1,17 +1,22 @@
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {
+  CODEXMOBILE_TLS_DIR,
+  CODEXMOBILE_UPLOAD_ROOT,
+  ROOT_DIR,
+  SERVER_DIR,
+  statePath
+} from './runtime-paths.js';
 
-export const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const ROOT_DIR = path.resolve(__dirname, '..');
+export const __dirname = SERVER_DIR;
 export const CLIENT_DIST = path.join(ROOT_DIR, 'client', 'dist');
-export const UPLOAD_ROOT = path.join(ROOT_DIR, '.codexmobile', 'uploads');
-export const IMAGE_PROMPT_STATE = path.join(ROOT_DIR, '.codexmobile', 'state', 'image-prompts.json');
-export const FEISHU_AUTH_STATE = path.join(ROOT_DIR, '.codexmobile', 'state', 'feishu-auth.json');
+export const UPLOAD_ROOT = CODEXMOBILE_UPLOAD_ROOT;
+export const IMAGE_PROMPT_STATE = statePath('image-prompts.json');
+export const FEISHU_AUTH_STATE = statePath('feishu-auth.json');
 export const PORT = Number(process.env.PORT || 3321);
 export const HOST = process.env.HOST || '0.0.0.0';
 export const HTTPS_PORT = Number(process.env.HTTPS_PORT || 3443);
-export const HTTPS_PFX_PATH = process.env.HTTPS_PFX_PATH || path.join(ROOT_DIR, '.codexmobile', 'tls', 'server.pfx');
-export const HTTPS_ROOT_CA_PATH = process.env.HTTPS_ROOT_CA_PATH || path.join(ROOT_DIR, '.codexmobile', 'tls', 'codexmobile-root-ca.cer');
+export const HTTPS_PFX_PATH = process.env.HTTPS_PFX_PATH || path.join(CODEXMOBILE_TLS_DIR, 'server.pfx');
+export const HTTPS_ROOT_CA_PATH = process.env.HTTPS_ROOT_CA_PATH || path.join(CODEXMOBILE_TLS_DIR, 'codexmobile-root-ca.cer');
 export const HTTPS_PFX_PASSPHRASE = process.env.HTTPS_PFX_PASSPHRASE || 'codexmobile-local-https';
 export const PUBLIC_URL = process.env.CODEXMOBILE_PUBLIC_URL || '';
 export const FEISHU_APP_ID = String(process.env.CODEXMOBILE_FEISHU_APP_ID || '').trim();
