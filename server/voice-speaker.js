@@ -7,8 +7,14 @@ import WebSocket from 'ws';
 
 import { DEFAULT_OPENAI_COMPATIBLE_BASE_URL, openAICompatibleConfig } from './provider-api.js';
 
-const DEFAULT_SPEECH_MODEL = 'gpt-4o-mini-tts';
-const DEFAULT_SPEECH_VOICE = 'coral';
+const DASHSCOPE_SPEECH_PROVIDER = 'dashscope';
+const DASHSCOPE_SPEECH_BASE_URL = 'https://dashscope.aliyuncs.com/api/v1';
+const DASHSCOPE_SPEECH_PATH = '/services/aigc/multimodal-generation/generation';
+const DEFAULT_DASHSCOPE_SPEECH_MODEL = 'qwen3-tts-flash';
+const DEFAULT_DASHSCOPE_SPEECH_VOICE = 'Cherry';
+const DEFAULT_DASHSCOPE_SPEECH_LANGUAGE_TYPE = 'chinese';
+const DEFAULT_OPENAI_SPEECH_MODEL = 'gpt-4o-mini-tts';
+const DEFAULT_OPENAI_SPEECH_VOICE = 'coral';
 const DEFAULT_SPEECH_FORMAT = 'mp3';
 const SPEECH_TIMEOUT_MS = Number(process.env.CODEXMOBILE_SPEECH_TIMEOUT_MS || 120000);
 const LOCAL_SPEECH_TIMEOUT_MS = Number(process.env.CODEXMOBILE_SPEECH_LOCAL_TIMEOUT_MS || 45000);
@@ -114,12 +120,65 @@ function normalizeSpeechFormat(value) {
   return SPEECH_MIME_TYPES.has(format) ? format : DEFAULT_SPEECH_FORMAT;
 }
 
+function speechProvider() {
+  const provider = String(process.env.CODEXMOBILE_SPEECH_PROVIDER || process.env.CODEXMOBILE_TTS_PROVIDER || 'dashscope')
+    .trim()
+    .toLowerCase();
+  if (['openai', 'openai-compatible', 'compatible'].includes(provider)) {
+    return 'openai';
+  }
+  if (['ali', 'aliyun', 'alibaba', 'bailian', 'dashscope', 'qwen'].includes(provider)) {
+    return DASHSCOPE_SPEECH_PROVIDER;
+  }
+  return DASHSCOPE_SPEECH_PROVIDER;
+}
+
 function speechApiKeys() {
   return [
     process.env.CODEXMOBILE_SPEECH_API_KEY,
     process.env.CODEXMOBILE_TTS_API_KEY,
     process.env.OPENAI_API_KEY
   ].filter(Boolean);
+}
+
+function dashscopeSpeechApiKeys() {
+  return [
+    process.env.CODEXMOBILE_DASHSCOPE_API_KEY,
+    process.env.DASHSCOPE_API_KEY,
+    process.env.CODEXMOBILE_SPEECH_API_KEY,
+    process.env.CODEXMOBILE_TTS_API_KEY
+  ].filter(Boolean);
+}
+
+function dashscopeSpeechBaseUrl() {
+  return String(
+    process.env.CODEXMOBILE_DASHSCOPE_TTS_BASE_URL ||
+      process.env.CODEXMOBILE_SPEECH_DASHSCOPE_BASE_URL ||
+      DASHSCOPE_SPEECH_BASE_URL
+  ).replace(/\/+$/, '');
+}
+
+function normalizeDashscopeLanguageType(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function dashscopeSpeechConfig() {
+  return {
+    provider: DASHSCOPE_SPEECH_PROVIDER,
+    baseUrl: dashscopeSpeechBaseUrl(),
+    apiKeys: dashscopeSpeechApiKeys(),
+    model: process.env.CODEXMOBILE_SPEECH_MODEL ||
+      process.env.CODEXMOBILE_TTS_MODEL ||
+      DEFAULT_DASHSCOPE_SPEECH_MODEL,
+    voice: process.env.CODEXMOBILE_SPEECH_VOICE ||
+      process.env.CODEXMOBILE_TTS_VOICE ||
+      DEFAULT_DASHSCOPE_SPEECH_VOICE,
+    languageType: normalizeDashscopeLanguageType(
+      process.env.CODEXMOBILE_SPEECH_LANGUAGE_TYPE ||
+      process.env.CODEXMOBILE_TTS_LANGUAGE_TYPE ||
+      DEFAULT_DASHSCOPE_SPEECH_LANGUAGE_TYPE
+    )
+  };
 }
 
 async function voiceSpeechConfig(config = {}) {
@@ -136,10 +195,10 @@ async function voiceSpeechConfig(config = {}) {
     ...providerConfig,
     model: process.env.CODEXMOBILE_SPEECH_MODEL ||
       process.env.CODEXMOBILE_TTS_MODEL ||
-      DEFAULT_SPEECH_MODEL,
+      DEFAULT_OPENAI_SPEECH_MODEL,
     voice: process.env.CODEXMOBILE_SPEECH_VOICE ||
       process.env.CODEXMOBILE_TTS_VOICE ||
-      DEFAULT_SPEECH_VOICE,
+      DEFAULT_OPENAI_SPEECH_VOICE,
     format: normalizeSpeechFormat(
       process.env.CODEXMOBILE_SPEECH_FORMAT ||
       process.env.CODEXMOBILE_TTS_FORMAT ||
@@ -156,27 +215,33 @@ export function speechMimeType(format) {
 }
 
 export function publicVoiceSpeechStatus(config = {}) {
-  const baseUrl = process.env.CODEXMOBILE_SPEECH_BASE_URL ||
-    process.env.CODEXMOBILE_TTS_BASE_URL ||
-    config.baseUrl ||
-    DEFAULT_OPENAI_COMPATIBLE_BASE_URL;
+  const provider = speechProvider();
+  const dashscopeConfig = dashscopeSpeechConfig();
+  const baseUrl = provider === DASHSCOPE_SPEECH_PROVIDER
+    ? dashscopeConfig.baseUrl
+    : process.env.CODEXMOBILE_SPEECH_BASE_URL ||
+      process.env.CODEXMOBILE_TTS_BASE_URL ||
+      config.baseUrl ||
+      DEFAULT_OPENAI_COMPATIBLE_BASE_URL;
   const localFallback = localSpeechFallbackEnabled();
   const edge = edgeSpeechEnabled();
 
   return {
     configured: !truthyEnv(process.env.CODEXMOBILE_SPEECH_DISABLED),
-    provider: edge ? EDGE_SPEECH_PROVIDER : providerLabel(baseUrl),
-    model: edge ? EDGE_SPEECH_FORMAT : process.env.CODEXMOBILE_SPEECH_MODEL ||
+    provider: provider === DASHSCOPE_SPEECH_PROVIDER ? DASHSCOPE_SPEECH_PROVIDER : providerLabel(baseUrl),
+    model: provider === DASHSCOPE_SPEECH_PROVIDER ? dashscopeConfig.model : process.env.CODEXMOBILE_SPEECH_MODEL ||
       process.env.CODEXMOBILE_TTS_MODEL ||
-      DEFAULT_SPEECH_MODEL,
-    voice: edge ? edgeSpeechVoice() : process.env.CODEXMOBILE_SPEECH_VOICE ||
+      DEFAULT_OPENAI_SPEECH_MODEL,
+    voice: provider === DASHSCOPE_SPEECH_PROVIDER ? dashscopeConfig.voice : process.env.CODEXMOBILE_SPEECH_VOICE ||
       process.env.CODEXMOBILE_TTS_VOICE ||
-      DEFAULT_SPEECH_VOICE,
-    format: edge ? 'webm' : normalizeSpeechFormat(
+      DEFAULT_OPENAI_SPEECH_VOICE,
+    format: provider === DASHSCOPE_SPEECH_PROVIDER ? 'url-audio' : normalizeSpeechFormat(
       process.env.CODEXMOBILE_SPEECH_FORMAT ||
       process.env.CODEXMOBILE_TTS_FORMAT ||
       DEFAULT_SPEECH_FORMAT
     ),
+    languageType: provider === DASHSCOPE_SPEECH_PROVIDER ? dashscopeConfig.languageType : '',
+    dashscopeConfigured: provider === DASHSCOPE_SPEECH_PROVIDER && dashscopeConfig.apiKeys.length > 0,
     edge,
     edgeVoice: edge ? edgeSpeechVoice() : '',
     edgeFormat: edge ? EDGE_SPEECH_FORMAT : '',
@@ -215,6 +280,140 @@ async function requestSpeech({ text, config, apiKey }) {
   }
 
   return Buffer.from(await response.arrayBuffer());
+}
+
+function audioMimeTypeFromUrl(value) {
+  try {
+    const pathname = new URL(value).pathname.toLowerCase();
+    const extension = pathname.split('.').pop();
+    if (extension === 'mp3') {
+      return 'audio/mpeg';
+    }
+    if (extension === 'wav') {
+      return 'audio/wav';
+    }
+    if (extension === 'ogg' || extension === 'opus') {
+      return 'audio/ogg';
+    }
+    if (extension === 'aac') {
+      return 'audio/aac';
+    }
+    if (extension === 'flac') {
+      return 'audio/flac';
+    }
+  } catch {
+    // Ignore malformed provider URLs and fall back to wav.
+  }
+  return 'audio/wav';
+}
+
+function dashscopeErrorMessage(payload, response) {
+  return payload?.message ||
+    payload?.error?.message ||
+    payload?.error ||
+    payload?.output?.message ||
+    `DashScope speech API returned ${response.status}`;
+}
+
+async function requestDashscopeSpeech({ text, config, apiKey }) {
+  if (!apiKey) {
+    const error = new Error('DashScope API key is not configured');
+    error.status = 401;
+    error.statusCode = 401;
+    throw error;
+  }
+
+  const input = {
+    text,
+    voice: config.voice
+  };
+  if (config.languageType) {
+    input.language_type = config.languageType;
+  }
+
+  const response = await fetch(`${config.baseUrl}${DASHSCOPE_SPEECH_PATH}`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: config.model,
+      input
+    }),
+    signal: AbortSignal.timeout(SPEECH_TIMEOUT_MS)
+  });
+
+  const rawText = await response.text();
+  let payload = null;
+  try {
+    payload = rawText ? JSON.parse(rawText) : null;
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok || payload?.code) {
+    const error = new Error(safeProviderMessage(dashscopeErrorMessage(payload, response)));
+    error.status = response.status;
+    error.statusCode = response.status;
+    throw error;
+  }
+
+  const audioUrl = payload?.output?.audio?.url || payload?.output?.url || payload?.audio?.url || '';
+  if (!audioUrl) {
+    const error = new Error('DashScope speech response did not include an audio URL');
+    error.statusCode = 502;
+    throw error;
+  }
+
+  const audioResponse = await fetch(audioUrl, {
+    signal: AbortSignal.timeout(SPEECH_TIMEOUT_MS)
+  });
+  if (!audioResponse.ok) {
+    const error = new Error(`DashScope audio download returned ${audioResponse.status}`);
+    error.status = audioResponse.status;
+    error.statusCode = audioResponse.status;
+    throw error;
+  }
+
+  const data = Buffer.from(await audioResponse.arrayBuffer());
+  if (!data.length) {
+    const error = new Error('DashScope speech produced no audio');
+    error.statusCode = 502;
+    throw error;
+  }
+
+  const contentType = String(audioResponse.headers.get('content-type') || '').split(';')[0].trim();
+  return {
+    data,
+    mimeType: contentType || audioMimeTypeFromUrl(audioUrl),
+    model: config.model,
+    voice: config.voice,
+    provider: DASHSCOPE_SPEECH_PROVIDER
+  };
+}
+
+async function synthesizeDashscopeSpeech(text) {
+  const config = dashscopeSpeechConfig();
+  const apiKeys = config.apiKeys.length ? config.apiKeys : [''];
+  let lastError = null;
+
+  for (let index = 0; index < apiKeys.length; index += 1) {
+    try {
+      return await requestDashscopeSpeech({ text, config, apiKey: apiKeys[index] });
+    } catch (error) {
+      lastError = error;
+      const invalidKey = error.status === 401 ||
+        /invalid api key|incorrect api key|unauthorized|api key/i.test(error.message || '');
+      if (invalidKey && index < apiKeys.length - 1) {
+        console.warn(`[voice] DashScope API key #${index + 1} failed, trying next key.`);
+        continue;
+      }
+      break;
+    }
+  }
+
+  throw lastError || new Error('DashScope speech failed');
 }
 
 function edgeConnectionId() {
@@ -495,37 +694,52 @@ export async function synthesizeSpeech(input, codexConfig = {}) {
     throw error;
   }
 
+  const provider = speechProvider();
+  let lastError = null;
+
+  if (provider === DASHSCOPE_SPEECH_PROVIDER) {
+    try {
+      return await synthesizeDashscopeSpeech(text);
+    } catch (error) {
+      lastError = error;
+      console.warn(`[voice] DashScope speech failed, falling back: ${safeProviderMessage(error?.message || '')}`);
+    }
+  }
+
+  if (provider === 'openai') {
+    const config = await voiceSpeechConfig(codexConfig);
+    const apiKeys = config.apiKeys.length ? config.apiKeys : [''];
+
+    for (let index = 0; index < apiKeys.length; index += 1) {
+      try {
+        const data = await requestSpeech({ text, config, apiKey: apiKeys[index] });
+        return {
+          data,
+          mimeType: speechMimeType(config.format),
+          model: config.model,
+          voice: config.voice,
+          provider: providerLabel(config.baseUrl)
+        };
+      } catch (error) {
+        lastError = error;
+        const invalidKey = error.status === 401 ||
+          /invalid api key|incorrect api key|unauthorized/i.test(error.message || '');
+        if (invalidKey && index < apiKeys.length - 1) {
+          console.warn(`[voice] speech API key #${index + 1} failed, trying next key.`);
+          continue;
+        }
+        console.warn(`[voice] OpenAI-compatible speech failed, falling back: ${safeProviderMessage(error?.message || '')}`);
+        break;
+      }
+    }
+  }
+
   if (edgeSpeechEnabled()) {
     try {
       return await synthesizeEdgeSpeech(text);
     } catch (error) {
-      console.warn(`[voice] Edge speech failed, falling back: ${safeProviderMessage(error?.message || '')}`);
-    }
-  }
-
-  const config = await voiceSpeechConfig(codexConfig);
-  const apiKeys = config.apiKeys.length ? config.apiKeys : [''];
-  let lastError = null;
-
-  for (let index = 0; index < apiKeys.length; index += 1) {
-    try {
-      const data = await requestSpeech({ text, config, apiKey: apiKeys[index] });
-      return {
-        data,
-        mimeType: speechMimeType(config.format),
-        model: config.model,
-        voice: config.voice,
-        provider: providerLabel(config.baseUrl)
-      };
-    } catch (error) {
       lastError = error;
-      const invalidKey = error.status === 401 ||
-        /invalid api key|incorrect api key|unauthorized/i.test(error.message || '');
-      if (invalidKey && index < apiKeys.length - 1) {
-        console.warn(`[voice] speech API key #${index + 1} failed, trying next key.`);
-        continue;
-      }
-      break;
+      console.warn(`[voice] Edge speech failed, falling back: ${safeProviderMessage(error?.message || '')}`);
     }
   }
 

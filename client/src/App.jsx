@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  EyeOff,
   FileText,
   Folder,
   Headphones,
@@ -21,6 +22,7 @@ import {
   Settings,
   ShieldCheck,
   Square,
+  SquareTerminal,
   Trash2,
   Volume2,
   Wifi,
@@ -74,6 +76,7 @@ const VOICE_MIME_CANDIDATES = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/web
 const VOICE_DIALOG_SILENCE_MS = 900;
 const VOICE_DIALOG_MIN_RECORDING_MS = 600;
 const VOICE_DIALOG_LEVEL_THRESHOLD = 0.018;
+const MAX_ACTIVITY_HISTORY = 48;
 const VOICE_DIALOG_SILENCE_AUDIO =
   'data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQIAAAAAAA==';
 const REALTIME_VOICE_SAMPLE_RATE = 24000;
@@ -81,6 +84,8 @@ const REALTIME_VOICE_BUFFER_SIZE = 2048;
 const REALTIME_VOICE_MIN_TURN_MS = 500;
 const REALTIME_VOICE_BARGE_IN_LEVEL_THRESHOLD = 0.026;
 const REALTIME_VOICE_BARGE_IN_SUSTAIN_MS = 180;
+const MESSAGE_SPEECH_FIRST_SEGMENT_CHARS = 180;
+const MESSAGE_SPEECH_SEGMENT_CHARS = 420;
 
 function realtimePayloadErrorMessage(payload) {
   return String(payload?.error?.message || payload?.error || payload?.message || '');
@@ -295,6 +300,60 @@ function spokenReplyText(value) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 2400);
+}
+
+function splitSpeechSegments(value) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) {
+    return [];
+  }
+  const sentencePattern = /[^.!?;,\u3002\uff01\uff1f\uff1b\uff0c]+[.!?;,\u3002\uff01\uff1f\uff1b\uff0c]?/g;
+  const sentences = text.match(sentencePattern) || [text];
+  const segments = [];
+  let current = '';
+
+  const pushCurrent = () => {
+    const segment = current.trim();
+    if (segment) {
+      segments.push(segment);
+    }
+    current = '';
+  };
+
+  const pushLongText = (chunk, limit) => {
+    let rest = chunk.trim();
+    while (rest.length > limit) {
+      const slice = rest.slice(0, limit).trim();
+      if (slice) {
+        segments.push(slice);
+      }
+      rest = rest.slice(limit).trim();
+    }
+    current = rest;
+  };
+
+  for (const sentence of sentences) {
+    const chunk = sentence.trim();
+    if (!chunk) {
+      continue;
+    }
+    const limit = segments.length ? MESSAGE_SPEECH_SEGMENT_CHARS : MESSAGE_SPEECH_FIRST_SEGMENT_CHARS;
+    const next = current ? `${current} ${chunk}` : chunk;
+    if (next.length <= limit) {
+      current = next;
+      continue;
+    }
+    if (current) {
+      pushCurrent();
+    }
+    if (chunk.length > limit) {
+      pushLongText(chunk, limit);
+    } else {
+      current = chunk;
+    }
+  }
+  pushCurrent();
+  return segments;
 }
 
 function voiceDialogStatusLabel(state) {
@@ -550,11 +609,16 @@ function activityStepFromPayload(payload, fallbackKind = 'status') {
   const rawLabel = String(payload.label || payload.content || '').replace(/\s+/g, ' ').trim();
   const detail = String(payload.detail || payload.error || '').replace(/\s+/g, ' ').trim();
   const label = meaningfulActivityLabel(payload, rawLabel, detail);
-  if (!label) {
+  const hasToolMetadata =
+    payload.kind === 'command_execution' ||
+    payload.command ||
+    payload.toolName ||
+    (Array.isArray(payload.fileChanges) && payload.fileChanges.length);
+  if (!label && !hasToolMetadata) {
     return null;
   }
   return {
-    id: payload.messageId || `${statusMessageId(payload)}-${payload.kind || fallbackKind}-${label || payload.status || 'step'}`,
+    id: payload.messageId || `${statusMessageId(payload)}-${payload.kind || fallbackKind}-${label || payload.status || detail || 'step'}`,
     kind: payload.kind || fallbackKind,
     label,
     status: payload.status || 'running',
@@ -563,6 +627,7 @@ function activityStepFromPayload(payload, fallbackKind = 'status') {
     output: payload.output || '',
     error: payload.error || '',
     fileChanges: payload.fileChanges || [],
+    toolName: payload.toolName || '',
     timestamp: payload.timestamp || new Date().toISOString()
   };
 }
@@ -622,23 +687,23 @@ function mergeActivityStep(currentSteps, step) {
   const existingIndex = steps.findIndex((item) => item.id === step.id);
   if (existingIndex >= 0) {
     steps[existingIndex] = { ...steps[existingIndex], ...step };
-    return steps.slice(-8);
+    return steps.slice(-MAX_ACTIVITY_HISTORY);
   }
   const sameWorkIndex = steps.findIndex(
     (item) =>
       item.kind === step.kind &&
       item.label === step.label &&
-      (item.command || '') === (step.command || '')
+      (item.command || item.detail || '') === (step.command || step.detail || '')
   );
   if (sameWorkIndex >= 0) {
     steps[sameWorkIndex] = { ...steps[sameWorkIndex], ...step };
-    return steps.slice(-8);
+    return steps.slice(-MAX_ACTIVITY_HISTORY);
   }
   const last = steps[steps.length - 1];
   if (last && last.label === step.label && last.detail === step.detail && last.status === step.status) {
     return steps;
   }
-  return [...steps, step].slice(-8);
+  return [...steps, step].slice(-MAX_ACTIVITY_HISTORY);
 }
 
 function isVisibleActivityStep(step, messageStatus) {
@@ -662,6 +727,100 @@ function isVisibleActivityStep(step, messageStatus) {
     return false;
   }
   return true;
+}
+
+function isRunningActivityStep(step) {
+  return step?.status === 'running' || step?.status === 'queued' || step?.status === 'in_progress';
+}
+
+function isCommandActivityStep(step) {
+  return step?.kind === 'command_execution' || Boolean(step?.command);
+}
+
+function compactActivityPreview(value, limit = 74) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) {
+    return '';
+  }
+  return text.length > limit ? `${text.slice(0, limit)}...` : text;
+}
+
+function commandPreview(step) {
+  return compactActivityPreview(step?.command || step?.detail || step?.label || '命令');
+}
+
+function filePathFromChange(change) {
+  if (!change || typeof change !== 'object') {
+    return '';
+  }
+  return String(change.path || change.file || change.name || '').trim();
+}
+
+function addFileChangePaths(paths, step) {
+  if (Array.isArray(step?.fileChanges)) {
+    step.fileChanges.forEach((change) => {
+      const filePath = filePathFromChange(change);
+      if (filePath) {
+        paths.add(filePath);
+      }
+    });
+  }
+  if (step?.kind !== 'file_change') {
+    return;
+  }
+  String(step.detail || '')
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^(?:add|create|update|modify|edit|delete|remove|move|rename|新增|创建|更新|修改|编辑|删除|移除)\s+/i, '').trim())
+    .filter(Boolean)
+    .forEach((filePath) => paths.add(filePath));
+}
+
+function uniqueCompletedCommands(steps) {
+  const seen = new Set();
+  const commands = [];
+  steps.forEach((step) => {
+    if (isRunningActivityStep(step) || step.status === 'failed') {
+      return;
+    }
+    const key = step.id || step.command || step.detail || step.label;
+    if (!key || seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    commands.push(step);
+  });
+  return commands;
+}
+
+function buildCodexStreamRows(message) {
+  const activities = Array.isArray(message.activities) ? message.activities : [];
+  const rows = [];
+  const commandSteps = activities.filter(isCommandActivityStep);
+  const completedCommands = uniqueCompletedCommands(commandSteps);
+  const runningCommand = [...commandSteps].reverse().find(isRunningActivityStep);
+  const editedPaths = new Set();
+  activities.forEach((step) => addFileChangePaths(editedPaths, step));
+
+  if (completedCommands.length) {
+    rows.push({ id: 'commands', icon: 'command', label: `已运行 ${completedCommands.length} 条命令` });
+  }
+  if (editedPaths.size) {
+    rows.push({ id: 'files', icon: 'edit', label: `已编辑 ${editedPaths.size} 个文件` });
+  }
+  if (runningCommand) {
+    rows.push({ id: 'running-command', icon: 'command', label: `正在运行 ${commandPreview(runningCommand)}`, state: 'running' });
+  }
+
+  if (!rows.length) {
+    activities
+      .filter((activity) => isVisibleActivityStep(activity, message.status))
+      .slice(-2)
+      .forEach((activity) => {
+        rows.push({ id: activity.id, icon: activity.kind === 'file_change' ? 'edit' : 'command', label: activity.label });
+      });
+  }
+
+  return rows.slice(-4);
 }
 
 function upsertStatusMessage(current, payload) {
@@ -763,6 +922,17 @@ function removeActivityMessagesForTurn(messages, payload) {
   });
 }
 
+function isActivityMessageForPayload(message, payload) {
+  if (message?.role !== 'activity') {
+    return false;
+  }
+  const keys = new Set(payloadRunKeys(payload));
+  if (!keys.size) {
+    return false;
+  }
+  return payloadRunKeys(message).some((key) => keys.has(key));
+}
+
 function upsertAssistantMessage(current, payload) {
   const content = String(payload.content || '').trim();
   if (!content) {
@@ -778,14 +948,27 @@ function upsertAssistantMessage(current, payload) {
     sessionId: payload.sessionId || null,
     kind: payload.kind
   };
-  const withoutActivity = removeActivityMessagesForTurn(current, payload);
-  const existingIndex = withoutActivity.findIndex((message) => message.id === id);
-  if (existingIndex >= 0) {
-    const next = [...withoutActivity];
-    next[existingIndex] = nextMessage;
+  let inserted = false;
+  const next = [];
+  for (const message of current) {
+    if (message.id === id) {
+      next.push(nextMessage);
+      inserted = true;
+      continue;
+    }
+    if (isActivityMessageForPayload(message, payload)) {
+      if (!inserted) {
+        next.push(nextMessage);
+        inserted = true;
+      }
+      continue;
+    }
+    next.push(message);
+  }
+  if (inserted) {
     return next;
   }
-  return [...withoutActivity, nextMessage];
+  return [...removeActivityMessagesForTurn(current, payload), nextMessage];
 }
 
 function PairingScreen({ onPaired }) {
@@ -894,12 +1077,14 @@ function Drawer({
   sessionsByProject,
   loadingProjectId,
   onToggleProject,
+  onHideProject,
   onSelectSession,
   onRenameSession,
   onDeleteSession,
   onNewConversation,
   onSync,
   syncing,
+  hiddenProjectIds,
   theme,
   setTheme
 }) {
@@ -909,6 +1094,42 @@ function Drawer({
   const [quotaLoaded, setQuotaLoaded] = useState(false);
   const [quotaError, setQuotaError] = useState('');
   const [quotaAccounts, setQuotaAccounts] = useState([]);
+  const [swipedProjectId, setSwipedProjectId] = useState(null);
+  const projectSwipeRef = useRef(null);
+
+  function handleProjectTouchStart(event, projectId) {
+    const touch = event.touches?.[0];
+    if (!touch) {
+      return;
+    }
+    projectSwipeRef.current = {
+      projectId,
+      x: touch.clientX,
+      y: touch.clientY
+    };
+  }
+
+  function handleProjectTouchMove(event) {
+    const start = projectSwipeRef.current;
+    const touch = event.touches?.[0];
+    if (!start || !touch) {
+      return;
+    }
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+    if (Math.abs(deltaX) < 28 || Math.abs(deltaX) < Math.abs(deltaY) * 1.15) {
+      return;
+    }
+    if (deltaX < 0) {
+      setSwipedProjectId(start.projectId);
+    } else if (swipedProjectId === start.projectId) {
+      setSwipedProjectId(null);
+    }
+  }
+
+  function handleProjectTouchEnd() {
+    projectSwipeRef.current = null;
+  }
 
   async function refreshCodexQuota(event) {
     event?.preventDefault();
@@ -976,6 +1197,8 @@ function Drawer({
     );
   }
 
+  const visibleProjects = projects.filter((project) => !hiddenProjectIds?.has(project.id));
+
   return (
     <>
       <div className={`drawer-backdrop ${open ? 'is-open' : ''}`} onClick={onClose} />
@@ -997,24 +1220,55 @@ function Drawer({
         <section className="drawer-section project-section">
           <div className="drawer-heading">项目</div>
           <div className="project-list">
-            {projects.map((project) => {
+            {!visibleProjects.length ? (
+              <div className="project-empty">项目已隐藏，点“对话同步”恢复</div>
+            ) : null}
+            {visibleProjects.map((project) => {
               const isSelected = selectedProject?.id === project.id;
               const isExpanded = Boolean(expandedProjectIds[project.id]);
               const projectSessions = sessionsByProject[project.id] || [];
               return (
                 <div key={project.id} className="project-group">
-                  <button
-                    className={`project-row ${isSelected ? 'is-selected' : ''} ${isExpanded ? 'is-expanded' : ''}`}
-                    onClick={() => onToggleProject(project)}
+                  <div
+                    className={`project-swipe ${swipedProjectId === project.id ? 'is-open' : ''}`}
+                    onTouchStart={(event) => handleProjectTouchStart(event, project.id)}
+                    onTouchMove={handleProjectTouchMove}
+                    onTouchEnd={handleProjectTouchEnd}
+                    onTouchCancel={handleProjectTouchEnd}
                   >
-                    <Folder size={18} />
-                    <span>
-                      <strong>{project.name}</strong>
-                      <small>{compactPath(project.path)}</small>
-                    </span>
-                    <small className="project-count">{project.sessionCount || projectSessions.length || 0}</small>
-                    <ChevronDown size={15} className="project-chevron" />
-                  </button>
+                    <button
+                      type="button"
+                      className="project-hide-action"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSwipedProjectId(null);
+                        onHideProject(project);
+                      }}
+                      aria-label={`隐藏项目 ${project.name}`}
+                    >
+                      <EyeOff size={15} />
+                      <span>隐藏</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`project-row ${isSelected ? 'is-selected' : ''} ${isExpanded ? 'is-expanded' : ''}`}
+                      onClick={() => {
+                        if (swipedProjectId === project.id) {
+                          setSwipedProjectId(null);
+                          return;
+                        }
+                        onToggleProject(project);
+                      }}
+                    >
+                      <Folder size={18} />
+                      <span>
+                        <strong>{project.name}</strong>
+                        <small>{compactPath(project.path)}</small>
+                      </span>
+                      <small className="project-count">{project.sessionCount || projectSessions.length || 0}</small>
+                      <ChevronDown size={15} className="project-chevron" />
+                    </button>
+                  </div>
                   {isExpanded ? (
                     <div className="thread-list">
                       {loadingProjectId === project.id ? (
@@ -1031,7 +1285,7 @@ function Drawer({
                             <button
                               type="button"
                               className="thread-main"
-                              onClick={() => onSelectSession(session)}
+                              onClick={() => onSelectSession(project, session)}
                             >
                               <span>{session.title || '对话'}</span>
                               <small>{session.draft ? '待发送' : formatTime(session.updatedAt)}</small>
@@ -1356,28 +1610,31 @@ function DocsPanel({ open, docs, busy, error, onClose, onConnect, onDisconnect, 
 function ActivityMessage({ message }) {
   const running = message.status === 'running' || message.status === 'queued';
   const failed = message.status === 'failed';
-  const activities = message.activities || [];
-  const visibleSteps = activities.filter((activity) => isVisibleActivityStep(activity, message.status)).slice(-4);
-  const headline = running ? '正在思考中' : message.label || message.content || '正在处理';
+  const rows = buildCodexStreamRows(message);
+  const headline = failed ? message.label || '任务失败' : running ? '正在思考' : message.label || '已处理';
 
   return (
-    <div className="message-row is-activity">
-      <div className={`message-bubble activity-bubble ${failed ? 'is-failed' : ''}`}>
-        <div className="activity-summary" role="status" aria-live="polite">
-          {running ? <Loader2 className="spin" size={15} /> : failed ? <X size={15} /> : <Check size={15} />}
-          <span>{headline}</span>
-        </div>
-        {visibleSteps.length ? (
-          <div className="activity-steps" aria-label="任务进度">
-            {visibleSteps.map((activity) => (
-              <div key={activity.id} className={`activity-step is-${activity.status || 'running'}`}>
-                <span className="activity-step-dot" />
-                <span>{activity.label}</span>
-              </div>
-            ))}
+    <div className="message-row is-activity is-codex-stream">
+      <div className="message-stack">
+        <div className={`codex-stream-status ${failed ? 'is-failed' : ''}`} role="status" aria-live="polite">
+          {rows.length ? (
+            <div className="codex-stream-rows" aria-label="任务状态">
+              {rows.map((row) => {
+                const Icon = row.icon === 'edit' ? Pencil : SquareTerminal;
+                return (
+                  <div key={row.id} className={`codex-stream-row ${row.state ? `is-${row.state}` : ''}`}>
+                    <Icon className="codex-stream-row-icon" aria-hidden="true" />
+                    <span>{row.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+          <div className={`codex-stream-thinking ${failed ? 'is-failed' : ''}`}>
+            {failed ? <X className="codex-stream-thinking-icon" aria-hidden="true" /> : null}
+            <span>{headline}</span>
           </div>
-        ) : null}
-        {message.timestamp ? <time>{formatTime(message.timestamp)}</time> : null}
+        </div>
       </div>
     </div>
   );
@@ -1557,7 +1814,14 @@ function renderInlineText(text, keyPrefix) {
   return nodes.length ? nodes : [<span key={`${keyPrefix}-text-0`}>{value}</span>];
 }
 
-function ChatMessage({ message, onPreviewImage, onDeleteMessage }) {
+function ChatMessage({
+  message,
+  onPreviewImage,
+  onDeleteMessage,
+  onSpeakMessage,
+  speakingMessageId,
+  speechLoadingMessageId
+}) {
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef(null);
 
@@ -1571,7 +1835,11 @@ function ChatMessage({ message, onPreviewImage, onDeleteMessage }) {
     return <ActivityMessage message={message} />;
   }
   const isUser = message.role === 'user';
+  const isAssistant = message.role === 'assistant';
   const canAct = message.role === 'user' || message.role === 'assistant';
+  const messageId = String(message.id || '');
+  const speechActive = isAssistant && speakingMessageId === messageId;
+  const speechLoading = isAssistant && speechLoadingMessageId === messageId;
 
   async function handleCopy() {
     const copiedText = await copyTextToClipboard(message.content);
@@ -1587,7 +1855,7 @@ function ChatMessage({ message, onPreviewImage, onDeleteMessage }) {
   }
 
   return (
-    <div className={`message-row ${isUser ? 'is-user' : ''}`}>
+    <div className={`message-row ${isUser ? 'is-user' : isAssistant ? 'is-assistant' : ''}`}>
       <div className="message-stack">
         <div className="message-bubble">
           <MessageContent content={message.content} onPreviewImage={onPreviewImage} />
@@ -1595,6 +1863,22 @@ function ChatMessage({ message, onPreviewImage, onDeleteMessage }) {
         </div>
         {canAct ? (
           <div className="message-actions" aria-label="消息操作">
+            {isAssistant ? (
+              <button
+                type="button"
+                className={`message-action ${speechActive ? 'is-speaking' : ''}`}
+                onClick={() => onSpeakMessage?.(message)}
+              >
+                {speechLoading ? (
+                  <Loader2 className="spin" size={13} />
+                ) : speechActive ? (
+                  <Square size={13} />
+                ) : (
+                  <Volume2 size={13} />
+                )}
+                <span>{speechLoading ? '\u51c6\u5907' : speechActive ? '\u505c\u6b62' : '\u6717\u8bfb'}</span>
+              </button>
+            ) : null}
             <button type="button" className="message-action" onClick={handleCopy}>
               {copied ? <Check size={13} /> : <Copy size={13} />}
               <span>{copied ? '已复制' : '复制'}</span>
@@ -1610,7 +1894,16 @@ function ChatMessage({ message, onPreviewImage, onDeleteMessage }) {
   );
 }
 
-function ChatPane({ messages, selectedSession, running, onPreviewImage, onDeleteMessage }) {
+function ChatPane({
+  messages,
+  selectedSession,
+  running,
+  onPreviewImage,
+  onDeleteMessage,
+  onSpeakMessage,
+  speakingMessageId,
+  speechLoadingMessageId
+}) {
   const bottomRef = useRef(null);
 
   useEffect(() => {
@@ -1637,6 +1930,9 @@ function ChatPane({ messages, selectedSession, running, onPreviewImage, onDelete
           message={message}
           onPreviewImage={onPreviewImage}
           onDeleteMessage={onDeleteMessage}
+          onSpeakMessage={onSpeakMessage}
+          speakingMessageId={speakingMessageId}
+          speechLoadingMessageId={speechLoadingMessageId}
         />
       ))}
       <div ref={bottomRef} />
@@ -2137,6 +2433,7 @@ export default function App() {
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
   const [expandedProjectIds, setExpandedProjectIds] = useState({});
+  const [hiddenProjectIds, setHiddenProjectIds] = useState(() => new Set());
   const [sessionsByProject, setSessionsByProject] = useState({});
   const [loadingProjectId, setLoadingProjectId] = useState(null);
   const [selectedSession, setSelectedSession] = useState(null);
@@ -2168,6 +2465,7 @@ export default function App() {
   const wsRef = useRef(null);
   const selectedProjectRef = useRef(null);
   const selectedSessionRef = useRef(null);
+  const hiddenProjectIdsRef = useRef(new Set());
   const runningByIdRef = useRef({});
   const lastLocalRunAtRef = useRef(0);
   const activePollsRef = useRef(new Set());
@@ -2213,6 +2511,13 @@ export default function App() {
   const [voiceDialogTranscript, setVoiceDialogTranscript] = useState('');
   const [voiceDialogAssistantText, setVoiceDialogAssistantText] = useState('');
   const [voiceDialogHandoffDraft, setVoiceDialogHandoffDraft] = useState('');
+  const [speakingMessageId, setSpeakingMessageId] = useState('');
+  const [speechLoadingMessageId, setSpeechLoadingMessageId] = useState('');
+  const messageSpeechAudioRef = useRef(null);
+  const messageSpeechAudioUrlRef = useRef('');
+  const messageSpeechAbortRef = useRef(null);
+  const messageSpeechStopPlaybackRef = useRef(null);
+  const messageSpeechRunRef = useRef(0);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -2412,6 +2717,235 @@ export default function App() {
       voiceDialogAudioUrlRef.current = '';
     }
     window.speechSynthesis?.cancel?.();
+  }
+
+  function ensureMessageSpeechAudio() {
+    if (!messageSpeechAudioRef.current) {
+      const audio = new Audio();
+      audio.preload = 'auto';
+      audio.playsInline = true;
+      messageSpeechAudioRef.current = audio;
+    }
+    return messageSpeechAudioRef.current;
+  }
+
+  function clearMessageSpeechAudio({ release = false, abortRequest = false } = {}) {
+    if (abortRequest) {
+      messageSpeechAbortRef.current?.abort?.();
+      messageSpeechAbortRef.current = null;
+    }
+    const stopPlayback = messageSpeechStopPlaybackRef.current;
+    if (stopPlayback) {
+      stopPlayback();
+    }
+    const audio = messageSpeechAudioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.onended = null;
+      audio.onerror = null;
+      audio.removeAttribute('src');
+      audio.load?.();
+      if (release) {
+        messageSpeechAudioRef.current = null;
+      }
+    }
+    if (messageSpeechAudioUrlRef.current) {
+      URL.revokeObjectURL(messageSpeechAudioUrlRef.current);
+      messageSpeechAudioUrlRef.current = '';
+    }
+    window.speechSynthesis?.cancel?.();
+  }
+
+  function stopMessageSpeech({ release = false, resetState = true } = {}) {
+    messageSpeechRunRef.current += 1;
+    clearMessageSpeechAudio({ release, abortRequest: true });
+    if (resetState) {
+      setSpeakingMessageId('');
+      setSpeechLoadingMessageId('');
+    }
+  }
+
+  function playMessageAudioBlob(blob) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(blob);
+      const audio = ensureMessageSpeechAudio();
+      let settled = false;
+      const finish = (error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (messageSpeechStopPlaybackRef.current === finish) {
+          messageSpeechStopPlaybackRef.current = null;
+        }
+        audio.onended = null;
+        audio.onerror = null;
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      };
+      clearMessageSpeechAudio();
+      messageSpeechAudioUrlRef.current = url;
+      messageSpeechStopPlaybackRef.current = finish;
+      audio.muted = false;
+      audio.src = url;
+      audio.playsInline = true;
+      audio.onended = () => finish();
+      audio.onerror = () => finish(new Error('Message speech playback failed'));
+      audio.load?.();
+      audio.play().catch(finish);
+    });
+  }
+
+  function speakMessageWithBrowser(text) {
+    return new Promise((resolve, reject) => {
+      if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+        reject(new Error('Browser speech synthesis is not supported'));
+        return;
+      }
+      const utterance = new SpeechSynthesisUtterance(text);
+      let settled = false;
+      const finish = (error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (messageSpeechStopPlaybackRef.current === stopBrowserSpeech) {
+          messageSpeechStopPlaybackRef.current = null;
+        }
+        utterance.onend = null;
+        utterance.onerror = null;
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      };
+      function stopBrowserSpeech() {
+        window.speechSynthesis.cancel();
+        finish();
+      }
+      utterance.lang = 'zh-CN';
+      utterance.rate = 1;
+      utterance.pitch = 1;
+      utterance.onend = () => finish();
+      utterance.onerror = () => finish(new Error('Browser speech synthesis failed'));
+      messageSpeechStopPlaybackRef.current = stopBrowserSpeech;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+    });
+  }
+
+  async function fetchMessageSpeechBlob(text, runId) {
+    if (messageSpeechRunRef.current !== runId) {
+      throw new Error('Message speech was stopped');
+    }
+    const controller = new AbortController();
+    messageSpeechAbortRef.current = controller;
+    try {
+      return await apiBlobFetch('/api/voice/speech', {
+        method: 'POST',
+        body: { text },
+        signal: controller.signal
+      });
+    } finally {
+      if (messageSpeechAbortRef.current === controller) {
+        messageSpeechAbortRef.current = null;
+      }
+    }
+  }
+
+  async function handleSpeakMessage(message) {
+    const messageId = String(message?.id || '');
+    if (!messageId || message?.role !== 'assistant') {
+      return;
+    }
+    if (speakingMessageId === messageId || speechLoadingMessageId === messageId) {
+      stopMessageSpeech();
+      return;
+    }
+
+    const text = spokenReplyText(message.content);
+    if (!text) {
+      return;
+    }
+    const segments = splitSpeechSegments(text);
+    if (!segments.length) {
+      return;
+    }
+
+    messageSpeechRunRef.current += 1;
+    const runId = messageSpeechRunRef.current;
+    clearMessageSpeechAudio({ abortRequest: true });
+    setSpeechLoadingMessageId(messageId);
+    setSpeakingMessageId('');
+
+    const prefetchSegment = (segment) =>
+      fetchMessageSpeechBlob(segment, runId)
+        .then((blob) => ({ blob }))
+        .catch((error) => ({ error }));
+
+    let spokenAny = false;
+    let currentIndex = 0;
+
+    try {
+      let blob = await fetchMessageSpeechBlob(segments[0], runId);
+      if (messageSpeechRunRef.current !== runId) {
+        return;
+      }
+      setSpeechLoadingMessageId('');
+      setSpeakingMessageId(messageId);
+
+      for (let index = 0; index < segments.length; index += 1) {
+        currentIndex = index;
+        const nextIndex = index + 1;
+        const nextBlobPromise = nextIndex < segments.length ? prefetchSegment(segments[nextIndex]) : null;
+        spokenAny = true;
+        await playMessageAudioBlob(blob);
+        if (messageSpeechRunRef.current !== runId) {
+          return;
+        }
+        if (!nextBlobPromise) {
+          break;
+        }
+        setSpeechLoadingMessageId(messageId);
+        const next = await nextBlobPromise;
+        if (messageSpeechRunRef.current !== runId) {
+          return;
+        }
+        if (next.error) {
+          throw next.error;
+        }
+        blob = next.blob;
+        setSpeechLoadingMessageId('');
+        setSpeakingMessageId(messageId);
+      }
+    } catch (error) {
+      if (error?.name === 'AbortError' || messageSpeechRunRef.current !== runId) {
+        return;
+      }
+      console.warn('[voice] message speech failed, using browser fallback:', error.message || error);
+      const fallbackText = segments.slice(spokenAny ? currentIndex + 1 : 0).join(' ');
+      try {
+        setSpeechLoadingMessageId('');
+        setSpeakingMessageId(messageId);
+        if (fallbackText) {
+          await speakMessageWithBrowser(fallbackText);
+        }
+      } catch (fallbackError) {
+        if (messageSpeechRunRef.current === runId) {
+          console.warn('[voice] browser message speech failed:', fallbackError.message || fallbackError);
+        }
+      }
+    } finally {
+      if (messageSpeechRunRef.current === runId) {
+        clearMessageSpeechAudio();
+        setSpeakingMessageId('');
+        setSpeechLoadingMessageId('');
+      }
+    }
   }
 
   function stopRealtimePlayback({ release = false } = {}) {
@@ -2847,6 +3381,7 @@ export default function App() {
     if (voiceRealtimeSocketRef.current) {
       return;
     }
+    stopMessageSpeech();
     clearVoiceDialogAudio();
     stopRealtimeVoiceDialog({ keepPanel: true });
     voiceDialogRealtimeRef.current = true;
@@ -2970,6 +3505,7 @@ export default function App() {
       return;
     }
 
+    stopMessageSpeech();
     setVoiceDialogAssistantText(text);
     setVoiceDialogError('');
     setVoiceDialogMode('speaking');
@@ -2997,6 +3533,7 @@ export default function App() {
       startRealtimeVoiceDialog();
       return;
     }
+    stopMessageSpeech();
     if (!voiceDialogOpenRef.current) {
       return;
     }
@@ -3357,7 +3894,16 @@ export default function App() {
     selectedSessionRef.current = selectedSession;
   }, [selectedSession]);
 
+  useEffect(() => {
+    hiddenProjectIdsRef.current = hiddenProjectIds;
+  }, [hiddenProjectIds]);
+
   useEffect(() => () => closeVoiceDialog(), []);
+  useEffect(() => () => stopMessageSpeech({ release: true, resetState: false }), []);
+
+  useEffect(() => {
+    stopMessageSpeech();
+  }, [selectedSession?.id]);
 
   useEffect(
     () => () => {
@@ -3484,10 +4030,14 @@ export default function App() {
     const data = await apiFetch('/api/projects');
     const list = data.projects || [];
     setProjects(list);
+    const hiddenIds = hiddenProjectIdsRef.current;
+    const visibleList = list.filter((project) => !hiddenIds.has(project.id));
+    const currentSelected = selectedProjectRef.current;
     const preferred =
-      list.find((project) => project.name.toLowerCase() === 'codexmobile') ||
-      list.find((project) => project.path.toLowerCase().includes('codexmobile')) ||
-      list[0] ||
+      visibleList.find((project) => project.id === currentSelected?.id) ||
+      visibleList.find((project) => project.name.toLowerCase() === 'codexmobile') ||
+      visibleList.find((project) => project.path.toLowerCase().includes('codexmobile')) ||
+      visibleList[0] ||
       null;
     setSelectedProject(preferred);
     if (preferred) {
@@ -3736,10 +4286,46 @@ export default function App() {
     setSyncing(true);
     try {
       await apiFetch('/api/sync', { method: 'POST' });
+      const emptyHiddenProjectIds = new Set();
+      hiddenProjectIdsRef.current = emptyHiddenProjectIds;
+      setHiddenProjectIds(emptyHiddenProjectIds);
       await loadStatus();
       await loadProjects();
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function handleHideProject(project) {
+    if (!project?.id) {
+      return;
+    }
+    const nextHiddenProjectIds = new Set(hiddenProjectIdsRef.current);
+    nextHiddenProjectIds.add(project.id);
+    hiddenProjectIdsRef.current = nextHiddenProjectIds;
+    setHiddenProjectIds(nextHiddenProjectIds);
+    setExpandedProjectIds((current) => {
+      const next = { ...current };
+      delete next[project.id];
+      return next;
+    });
+
+    if (selectedProjectRef.current?.id !== project.id) {
+      return;
+    }
+
+    const nextProject = projects.find((item) => item.id !== project.id && !nextHiddenProjectIds.has(item.id)) || null;
+    selectedProjectRef.current = nextProject;
+    selectedSessionRef.current = null;
+    setSelectedProject(nextProject);
+    setSelectedSession(null);
+    setMessages([]);
+    setAttachments([]);
+    setInput('');
+
+    if (nextProject) {
+      setExpandedProjectIds((current) => ({ ...current, [nextProject.id]: true }));
+      await loadSessions(nextProject, true);
     }
   }
 
@@ -3766,15 +4352,29 @@ export default function App() {
     }
   }
 
-  async function handleSelectSession(session) {
+  async function handleSelectSession(project, session) {
+    const nextProject =
+      project ||
+      projects.find((item) => item.id === session?.projectId) ||
+      selectedProjectRef.current;
+    if (nextProject?.id) {
+      selectedProjectRef.current = nextProject;
+      setSelectedProject(nextProject);
+      setExpandedProjectIds((current) => ({ ...current, [nextProject.id]: true }));
+    }
+    selectedSessionRef.current = session;
     setSelectedSession(session);
+    setAttachments([]);
+    setInput('');
     if (isDraftSession(session)) {
       setMessages([]);
       setDrawerOpen(false);
       return;
     }
     const data = await apiFetch(`/api/sessions/${encodeURIComponent(session.id)}/messages?limit=120`);
-    setMessages(data.messages || []);
+    if (selectedSessionRef.current?.id === session.id) {
+      setMessages(data.messages || []);
+    }
     setDrawerOpen(false);
   }
 
@@ -3894,6 +4494,9 @@ export default function App() {
     const sessionId = selectedSessionRef.current?.id || message.sessionId || '';
     const existingIndex = messages.findIndex((item) => String(item.id) === messageId);
     const removedMessage = existingIndex >= 0 ? messages[existingIndex] : message;
+    if (speakingMessageId === messageId || speechLoadingMessageId === messageId) {
+      stopMessageSpeech();
+    }
     setMessages((current) => current.filter((item) => String(item.id) !== messageId));
 
     if (!sessionId || isDraftSession({ id: sessionId })) {
@@ -4565,12 +5168,14 @@ export default function App() {
         sessionsByProject={sessionsByProject}
         loadingProjectId={loadingProjectId}
         onToggleProject={handleToggleProject}
+        onHideProject={handleHideProject}
         onSelectSession={handleSelectSession}
         onRenameSession={handleRenameSession}
         onDeleteSession={handleDeleteSession}
         onNewConversation={handleNewConversation}
         onSync={handleSync}
         syncing={syncing}
+        hiddenProjectIds={hiddenProjectIds}
         theme={theme}
         setTheme={setTheme}
       />
@@ -4592,6 +5197,9 @@ export default function App() {
         running={running}
         onPreviewImage={setPreviewImage}
         onDeleteMessage={handleDeleteMessage}
+        onSpeakMessage={handleSpeakMessage}
+        speakingMessageId={speakingMessageId}
+        speechLoadingMessageId={speechLoadingMessageId}
       />
       <VoiceDialogPanel
         open={voiceDialogOpen}
