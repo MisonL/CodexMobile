@@ -2,6 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 export const LAUNCH_AGENT_LABEL = 'com.codexmobile.agent';
+export const RELAY_LAUNCH_AGENT_LABEL = 'com.codexmobile.relay-connector';
 
 function cleanEnvValue(value) {
   return String(value || '').trim();
@@ -53,11 +54,11 @@ function resolveLogDir({ platform, env, homedir, dataDir }) {
   return pathApi.join(xdgState, 'codexmobile', 'logs');
 }
 
-function resolveLaunchAgentPath({ platform, homedir }) {
+function resolveLaunchAgentPath({ platform, homedir, label = LAUNCH_AGENT_LABEL }) {
   if (platform !== 'darwin') {
     return '';
   }
-  return path.posix.join(homedir, 'Library', 'LaunchAgents', `${LAUNCH_AGENT_LABEL}.plist`);
+  return path.posix.join(homedir, 'Library', 'LaunchAgents', `${label}.plist`);
 }
 
 export function resolveRuntimePaths(options = {}) {
@@ -82,9 +83,11 @@ export function resolveRuntimePaths(options = {}) {
     logDir,
     configPath: pathApi.join(dataDir, 'config.json'),
     relayConfigPath: pathApi.join(dataDir, 'relay.json'),
+    connectorInstanceIdPath: pathApi.join(dataDir, 'connector-instance-id'),
     codexHome,
     codexConfigPath: pathApi.join(codexHome, 'config.toml'),
     launchAgentPath: resolveLaunchAgentPath({ platform, homedir }),
+    relayLaunchAgentPath: resolveLaunchAgentPath({ platform, homedir, label: RELAY_LAUNCH_AGENT_LABEL }),
     serverOutLogPath: pathApi.join(logDir, 'server.out.log'),
     serverErrLogPath: pathApi.join(logDir, 'server.err.log'),
     relayOutLogPath: pathApi.join(logDir, 'relay.out.log'),

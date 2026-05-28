@@ -3,16 +3,11 @@ import { fileURLToPath } from 'node:url';
 import * as defaultLaunchAgent from './launch-agent.mjs';
 import { resolveRuntimePaths } from './paths.mjs';
 import * as defaultProcessManager from './process-manager.mjs';
-import {
-  readRelayConfig,
-  saveRelayConfig
-} from './relay-config.mjs';
-import {
-  collectDoctorReport,
-  collectStatusReport
-} from './status.mjs';
+import { readRelayLaunchAgentState, readRelayConfig, saveRelayConfig } from './relay-config.mjs';
+import { collectDoctorReport, collectStatusReport } from './status.mjs';
 
 const DEFAULT_CLI_PATH = fileURLToPath(new URL('../bin/codexmobile.mjs', import.meta.url));
+const DEFAULT_RELAY_CLIENT_PATH = fileURLToPath(new URL('../scripts/relay-mac-client.mjs', import.meta.url));
 
 function hasFlag(args, flag) {
   return args.includes(flag);
@@ -64,13 +59,14 @@ function emit(result, options, json) {
   return result;
 }
 
-function errorResult(message, code = 2) {
+function errorResult(message, code = 2, details = {}) {
   return {
     code,
     error: message,
     output: {
       ok: false,
-      error: message
+      error: message,
+      ...details
     }
   };
 }
@@ -148,11 +144,14 @@ async function runLogs(options) {
 
 async function runInstall(args, options) {
   const paths = resolveRuntimePaths(options);
+  const relayState = await readRelayLaunchAgentState({ ...options, paths });
   const helperOptions = {
     ...options,
     paths,
     nodePath: options.nodePath || process.execPath,
-    cliPath: options.cliPath || DEFAULT_CLI_PATH
+    cliPath: options.cliPath || DEFAULT_CLI_PATH,
+    relayClientPath: options.relayClientPath || DEFAULT_RELAY_CLIENT_PATH,
+    relayConfigured: relayState.configured
   };
   if (!hasFlag(args, '--dry-run')) {
     const output = await launchAgent(options).installMacLaunchAgent(helperOptions);
@@ -184,9 +183,12 @@ async function runUninstall(args, options) {
 }
 
 async function runEnable(options) {
+  const paths = resolveRuntimePaths(options);
+  const relayState = await readRelayLaunchAgentState({ ...options, paths });
   const output = await launchAgent(options).enableMacLaunchAgent({
     ...options,
-    paths: resolveRuntimePaths(options)
+    paths,
+    relayConfigured: relayState.configured
   });
   return {
     code: output.ok === false ? 1 : 0,
@@ -289,7 +291,8 @@ export async function runCli(args = [], options = {}) {
   const json = hasFlag(args, '--json');
   const command = stripFlags(args)[0] || 'help';
   const result = await routeCommand(command, args, options).catch((error) => {
-    return errorResult(error.message, 1);
+    const details = Array.isArray(error.cleanup) ? { cleanup: error.cleanup } : {};
+    return errorResult(error.message, 1, details);
   });
   return emit(result, options, json);
 }

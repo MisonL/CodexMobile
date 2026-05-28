@@ -5,6 +5,8 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  normalizeConnectorInstanceId,
+  readConnectorInstanceId,
   readRelayConfig,
   resolveRelayRuntimeConfig,
   saveRelayConfig
@@ -90,6 +92,58 @@ test('resolveRelayRuntimeConfig uses saved config with environment override prec
   assert.equal(overridden.localUrl, 'https://127.0.0.1:3443');
 });
 
+test('resolveRelayRuntimeConfig reads without creating a connector instance id by default', async () => {
+  const paths = await makePaths();
+  const config = await resolveRelayRuntimeConfig({ paths, env: {} });
+
+  assert.equal(config.connectorInstanceId, '');
+  await assert.rejects(
+    fs.stat(paths.connectorInstanceIdPath),
+    (error) => error.code === 'ENOENT'
+  );
+});
+
+test('resolveRelayRuntimeConfig persists a stable connector instance id when requested', async () => {
+  const paths = await makePaths();
+  const first = await resolveRelayRuntimeConfig({ paths, env: {}, ensureConnectorInstanceId: true });
+  const second = await resolveRelayRuntimeConfig({ paths, env: {}, ensureConnectorInstanceId: true });
+  const stored = await readConnectorInstanceId({ paths });
+
+  assert.match(first.connectorInstanceId, /^[0-9a-f-]{36}$/);
+  assert.equal(second.connectorInstanceId, first.connectorInstanceId);
+  assert.equal(stored, first.connectorInstanceId);
+});
+
+test('normalizeConnectorInstanceId rejects control characters', () => {
+  assert.equal(normalizeConnectorInstanceId('cmac-env-connector'), 'cmac-env-connector');
+  assert.throws(
+    () => normalizeConnectorInstanceId('cmac-env\nconnector', 'CODEXMOBILE_RELAY_CONNECTOR_ID'),
+    /CODEXMOBILE_RELAY_CONNECTOR_ID/
+  );
+});
+
+test('resolveRelayRuntimeConfig rejects invalid environment connector id', async () => {
+  const paths = await makePaths();
+  await assert.rejects(
+    resolveRelayRuntimeConfig({
+      paths,
+      env: { CODEXMOBILE_RELAY_CONNECTOR_ID: 'cmac-env\nconnector' }
+    }),
+    /CODEXMOBILE_RELAY_CONNECTOR_ID/
+  );
+});
+
+test('readConnectorInstanceId rejects invalid stored connector id', async () => {
+  const paths = await makePaths();
+  await fs.mkdir(paths.dataDir, { recursive: true });
+  await fs.writeFile(paths.connectorInstanceIdPath, 'cmac-stored\nbad\n', 'utf8');
+
+  await assert.rejects(
+    readConnectorInstanceId({ paths }),
+    /connectorInstanceId/
+  );
+});
+
 test('readRelayConfig reports unconfigured when relay.json is missing', async () => {
   const paths = await makePaths();
   const result = await readRelayConfig({ paths, redact: true });
@@ -119,14 +173,17 @@ test('relay-mac-client-config reads saved config and keeps environment precedenc
     assert.equal(savedModule.RELAY_URL, 'wss://saved.example/relay/mac');
     assert.equal(savedModule.RELAY_SECRET, 'saved-secret-0123456789abcdef012345');
     assert.equal(savedModule.LOCAL_URL, 'http://127.0.0.1:3321');
+    assert.match(savedModule.connectorInstanceId, /^[0-9a-f-]{36}$/);
 
     process.env.CODEXMOBILE_RELAY_URL = 'wss://env.example/relay/mac';
     process.env.CODEXMOBILE_RELAY_SECRET = 'env-secret-0123456789abcdef01234567';
     process.env.CODEXMOBILE_RELAY_LOCAL_URL = 'https://127.0.0.1:3443';
+    process.env.CODEXMOBILE_RELAY_CONNECTOR_ID = 'cmac-env-connector';
     const envModule = await import(`../scripts/relay-mac-client-config.mjs?env=${Date.now()}`);
     assert.equal(envModule.RELAY_URL, 'wss://env.example/relay/mac');
     assert.equal(envModule.RELAY_SECRET, 'env-secret-0123456789abcdef01234567');
     assert.equal(envModule.LOCAL_URL, 'https://127.0.0.1:3443');
+    assert.equal(envModule.connectorInstanceId, 'cmac-env-connector');
   } finally {
     process.env = previous;
   }

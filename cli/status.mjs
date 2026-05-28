@@ -8,15 +8,31 @@ import { collectManagedProcessStatus } from './process-manager.mjs';
 import { getMacLaunchAgentStatus } from './launch-agent.mjs';
 import { readRedactedRelayConfig } from './relay-config.mjs';
 
-const MIN_NODE_MAJOR = 20;
+const MIN_NODE_VERSION = '20.19.0';
 const DEFAULT_HTTP_PORT = 3321;
 const DEFAULT_HTTPS_PORT = 3443;
 const PORT_TIMEOUT_MS = 250;
 
-function nodeMajor(version) {
-  const [major] = String(version || '').split('.');
-  const parsed = Number(major);
-  return Number.isFinite(parsed) ? parsed : 0;
+function parseNodeVersion(version) {
+  const [major, minor, patch] = String(version || '')
+    .split(/[.-]/)
+    .slice(0, 3)
+    .map((part) => Number(part));
+  return [major, minor, patch].map((part) => (Number.isFinite(part) ? part : 0));
+}
+
+function nodeMeetsMinimum(version, minimum = MIN_NODE_VERSION) {
+  const current = parseNodeVersion(version);
+  const required = parseNodeVersion(minimum);
+  for (let index = 0; index < required.length; index += 1) {
+    if (current[index] > required[index]) {
+      return true;
+    }
+    if (current[index] < required[index]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 async function pathExists(fileSystem, filePath) {
@@ -97,7 +113,7 @@ export async function collectDoctorReport(options = {}) {
   const fileSystem = options.fs || fs;
   const execFile = options.execFile || defaultExecFile;
   const nodeVersion = options.nodeVersion || process.versions.node;
-  const nodeOk = nodeMajor(nodeVersion) >= MIN_NODE_MAJOR;
+  const nodeOk = nodeMeetsMinimum(nodeVersion);
   const codexConfigExists = await pathExists(fileSystem, paths.codexConfigPath);
   const httpPort = Number(env.PORT || DEFAULT_HTTP_PORT);
   const httpsPort = Number(env.HTTPS_PORT || DEFAULT_HTTPS_PORT);
@@ -108,7 +124,7 @@ export async function collectDoctorReport(options = {}) {
     ok: nodeOk && codexConfigExists,
     node: {
       version: nodeVersion,
-      minimumMajor: MIN_NODE_MAJOR,
+      minimumVersion: MIN_NODE_VERSION,
       status: nodeOk ? 'passed' : 'failed'
     },
     checks: {

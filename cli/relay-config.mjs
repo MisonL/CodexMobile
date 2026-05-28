@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 
-import { isStrongRelaySecret } from '../server/relay-protocol.js';
+import { createConnectorInstanceId, isStrongRelaySecret } from '../server/relay-protocol.js';
 
 const DEFAULT_LOCAL_URL = 'http://127.0.0.1:3321';
 const REDACTED = '[redacted]';
@@ -27,6 +27,17 @@ function normalizeUrl(value, allowedProtocols, fieldName) {
   return url.toString().replace(/\/+$/, '');
 }
 
+export function normalizeConnectorInstanceId(value, fieldName = 'connectorInstanceId') {
+  const text = clean(value);
+  if (!text) {
+    return '';
+  }
+  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(text)) {
+    throw new Error(`${fieldName} may only contain letters, numbers, dots, underscores, colons, or hyphens.`);
+  }
+  return text;
+}
+
 function redactedConfig(config) {
   if (!config) {
     return null;
@@ -46,6 +57,43 @@ async function readJson(fileSystem, filePath) {
     }
     throw error;
   }
+}
+
+export async function readConnectorInstanceId(options = {}) {
+  const { paths, fs: fileSystem = fs } = options;
+  if (!paths) {
+    throw new Error('paths are required.');
+  }
+  try {
+    return normalizeConnectorInstanceId(
+      await fileSystem.readFile(paths.connectorInstanceIdPath, 'utf8'),
+      'connectorInstanceId'
+    );
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return '';
+    }
+    throw error;
+  }
+}
+
+async function ensureConnectorInstanceId(options = {}) {
+  const { paths, fs: fileSystem = fs } = options;
+  if (!paths) {
+    throw new Error('paths are required.');
+  }
+  const existing = await readConnectorInstanceId(options);
+  if (existing) {
+    return existing;
+  }
+  const connectorInstanceId = createConnectorInstanceId();
+  await fileSystem.mkdir(paths.dataDir, { recursive: true });
+  await fileSystem.writeFile(paths.connectorInstanceIdPath, `${connectorInstanceId}\n`, {
+    encoding: 'utf8',
+    mode: 0o600
+  });
+  await fileSystem.chmod(paths.connectorInstanceIdPath, 0o600);
+  return connectorInstanceId;
 }
 
 export function normalizeRelayConfig(options = {}) {
@@ -77,7 +125,7 @@ export async function saveRelayConfig(options = {}) {
       encoding: 'utf8',
       mode: 0o600
     });
-    await fileSystem.chmod?.(paths.relayConfigPath, 0o600);
+    await fileSystem.chmod(paths.relayConfigPath, 0o600);
     return {
       command: 'relay-config',
       ok: true,
@@ -120,19 +168,45 @@ export async function readRelayConfig(options = {}) {
   };
 }
 
+export async function readRelayLaunchAgentState(options = {}) {
+  const { paths } = options;
+  if (!paths) {
+    throw new Error('paths are required.');
+  }
+  const relayConfig = await readRelayConfig({ ...options, paths, redact: false });
+  if (!relayConfig.configured) {
+    return { configured: false };
+  }
+  try {
+    normalizeRelayConfig(relayConfig.config);
+  } catch (error) {
+    throw new Error(`Invalid saved relay config: ${error.message}`);
+  }
+  return { configured: true };
+}
+
 export async function resolveRelayRuntimeConfig(options = {}) {
   const paths = options.paths;
   if (!paths) {
     throw new Error('paths are required.');
   }
   const env = options.env || process.env;
+  const shouldEnsureConnectorInstanceId = Boolean(options.ensureConnectorInstanceId);
   const stored = await readRelayConfig({ ...options, redact: false });
   const config = stored.config || {};
+  const envConnectorInstanceId = normalizeConnectorInstanceId(
+    env.CODEXMOBILE_RELAY_CONNECTOR_ID,
+    'CODEXMOBILE_RELAY_CONNECTOR_ID'
+  );
+  const storedConnectorInstanceId = shouldEnsureConnectorInstanceId
+    ? await ensureConnectorInstanceId(options)
+    : await readConnectorInstanceId(options);
 
   return {
     relayUrl: clean(env.CODEXMOBILE_RELAY_URL) || config.relayUrl || '',
     relaySecret: clean(env.CODEXMOBILE_RELAY_SECRET) || config.relaySecret || '',
-    localUrl: clean(env.CODEXMOBILE_RELAY_LOCAL_URL) || config.localUrl || DEFAULT_LOCAL_URL
+    localUrl: clean(env.CODEXMOBILE_RELAY_LOCAL_URL) || config.localUrl || DEFAULT_LOCAL_URL,
+    connectorInstanceId: envConnectorInstanceId || storedConnectorInstanceId
   };
 }
 

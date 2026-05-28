@@ -7,35 +7,9 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 import { runCli } from '../cli/commands.mjs';
+import { makeFixture, root } from './cli-test-fixtures.mjs';
 
 const execFileAsync = promisify(execFile);
-const root = path.resolve(import.meta.dirname, '..');
-
-async function makeFixture() {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'codexmobile-cli-home-'));
-  const codexHome = path.join(home, '.codex');
-  await fs.mkdir(codexHome, { recursive: true });
-  await fs.writeFile(path.join(codexHome, 'config.toml'), 'model = "gpt-5.4-mini"\n', 'utf8');
-  return {
-    platform: 'darwin',
-    env: {
-      CODEXMOBILE_HOME: path.join(home, 'Library', 'Application Support', 'CodexMobile'),
-      CODEX_HOME: codexHome
-    },
-    homedir: home,
-    cwd: root,
-    execFile: (command, args, options, callback) => {
-      callback(Object.assign(new Error(`${command} unavailable`), { code: 'ENOENT' }));
-    },
-    portProbe: async (port) => ({
-      port,
-      status: 'available',
-      detail: 'fixture port probe'
-    }),
-    stdout: () => {},
-    stderr: () => {}
-  };
-}
 
 test('runCli returns JSON doctor report without external dependencies', async () => {
   const options = await makeFixture();
@@ -64,6 +38,19 @@ test('runCli returns a failing code when doctor required checks fail', async () 
   assert.equal(result.output.checks.codexConfig.status, 'failed');
 });
 
+test('runCli doctor enforces the exact Node.js version floor', async () => {
+  const options = await makeFixture();
+  const result = await runCli(['doctor', '--json'], {
+    ...options,
+    nodeVersion: '20.18.1'
+  });
+
+  assert.equal(result.code, 1);
+  assert.equal(result.output.ok, false);
+  assert.equal(result.output.node.status, 'failed');
+  assert.equal(result.output.node.minimumVersion, '20.19.0');
+});
+
 test('runCli returns status JSON with runtime paths', async () => {
   const options = await makeFixture();
   const result = await runCli(['status', '--json'], options);
@@ -72,6 +59,7 @@ test('runCli returns status JSON with runtime paths', async () => {
   assert.equal(result.output.command, 'status');
   assert.equal(result.output.paths.logDir, path.join(options.homedir, 'Library', 'Logs', 'CodexMobile'));
   assert.equal(result.output.process.managed, false);
+  assert.equal(result.output.launchAgent.relayConnector.loaded, false);
 });
 
 test('runCli routes lifecycle commands through injected process manager helpers', async () => {
@@ -101,58 +89,6 @@ test('runCli routes lifecycle commands through injected process manager helpers'
   assert.equal((await runCli(['restart', '--json'], { ...options, processManager })).output.command, 'restart');
   assert.equal((await runCli(['logs', '--json'], { ...options, processManager })).output.text, 'server log');
   assert.deepEqual(calls, ['start', 'stop', 'restart', 'logs']);
-});
-
-test('runCli routes LaunchAgent install and uninstall commands through injected helpers', async () => {
-  const options = await makeFixture();
-  const calls = [];
-  const launchAgent = {
-    buildMacInstallPlan: () => {
-      calls.push('dry-run');
-      return { command: 'install', ok: true, dryRun: true };
-    },
-    installMacLaunchAgent: async () => {
-      calls.push('install');
-      return { command: 'install', ok: true, installed: true };
-    },
-    uninstallMacLaunchAgent: async (helperOptions) => {
-      calls.push({
-        command: 'uninstall',
-        removeData: helperOptions.removeData,
-        confirmRemoveData: helperOptions.confirmRemoveData
-      });
-      return { command: 'uninstall', ok: true, uninstalled: true };
-    },
-    enableMacLaunchAgent: async () => {
-      calls.push('enable');
-      return { command: 'enable', ok: true, enabled: true };
-    },
-    disableMacLaunchAgent: async () => {
-      calls.push('disable');
-      return { command: 'disable', ok: true, disabled: true };
-    }
-  };
-
-  assert.equal((await runCli(['install', '--dry-run', '--json'], { ...options, launchAgent })).output.dryRun, true);
-  assert.equal((await runCli(['install', '--json'], { ...options, launchAgent })).output.installed, true);
-  assert.equal((await runCli(['uninstall', '--json'], { ...options, launchAgent })).output.uninstalled, true);
-  assert.equal(
-    (await runCli(['uninstall', '--remove-data', '--confirm-remove-data', '--json'], {
-      ...options,
-      launchAgent
-    })).output.uninstalled,
-    true
-  );
-  assert.equal((await runCli(['enable', '--json'], { ...options, launchAgent })).output.enabled, true);
-  assert.equal((await runCli(['disable', '--json'], { ...options, launchAgent })).output.disabled, true);
-  assert.deepEqual(calls, [
-    'dry-run',
-    'install',
-    { command: 'uninstall', removeData: false, confirmRemoveData: false },
-    { command: 'uninstall', removeData: true, confirmRemoveData: true },
-    'enable',
-    'disable'
-  ]);
 });
 
 test('runCli saves and shows redacted relay connector config', async () => {
@@ -200,21 +136,6 @@ test('runCli rejects weak relay connector secret', async () => {
   assert.match(result.output.error, /at least 32 characters/);
 });
 
-test('runCli returns macOS install dry-run plan without writing files', async () => {
-  const options = await makeFixture();
-  const result = await runCli(['install', '--dry-run', '--json'], options);
-
-  assert.equal(result.code, 0);
-  assert.equal(result.output.command, 'install');
-  assert.equal(result.output.dryRun, true);
-  assert.equal(result.output.wouldWrite.length, 1);
-
-  await assert.rejects(
-    fs.stat(result.output.wouldWrite[0].path),
-    (error) => error.code === 'ENOENT'
-  );
-});
-
 test('bin/codexmobile.mjs supports doctor --json', async () => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'codexmobile-cli-bin-home-'));
   const codexHome = path.join(home, '.codex');
@@ -243,7 +164,9 @@ test('package metadata exposes CLI bin and preserves existing start script', asy
   const packageJson = JSON.parse(await fs.readFile(path.join(root, 'package.json'), 'utf8'));
 
   assert.equal(packageJson.bin.codexmobile, './bin/codexmobile.mjs');
+  assert.equal(packageJson.engines.node, '>=20.19.0');
   assert.equal(packageJson.scripts.start, 'node server/index.js');
+  assert.equal(packageJson.scripts['smoke:relay:real-chat'], 'node scripts/relay-real-chat-smoke.mjs');
   assert.ok(packageJson.files.includes('asr-service/'));
   assert.ok(packageJson.files.includes('bin/'));
   assert.ok(packageJson.files.includes('cli/'));

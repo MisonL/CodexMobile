@@ -1,10 +1,10 @@
 import { LAUNCH_AGENT_LABEL } from './paths.mjs';
 
-export function buildLaunchctlCommands(paths) {
+export function buildLaunchctlCommands(paths, label = LAUNCH_AGENT_LABEL, launchAgentPath = paths.launchAgentPath) {
   return [
-    `launchctl bootout gui/$(id -u)/${LAUNCH_AGENT_LABEL}`,
-    `launchctl bootstrap gui/$(id -u) ${paths.launchAgentPath}`,
-    `launchctl kickstart -k gui/$(id -u)/${LAUNCH_AGENT_LABEL}`
+    `launchctl bootout gui/$(id -u)/${label}`,
+    `launchctl bootstrap gui/$(id -u) ${launchAgentPath}`,
+    `launchctl kickstart -k gui/$(id -u)/${label}`
   ];
 }
 
@@ -21,8 +21,8 @@ export function currentUserDomain() {
   return `gui/${process.getuid()}`;
 }
 
-export function serviceTarget() {
-  return `${currentUserDomain()}/${LAUNCH_AGENT_LABEL}`;
+export function serviceTarget(label = LAUNCH_AGENT_LABEL) {
+  return `${currentUserDomain()}/${label}`;
 }
 
 export function launchctlErrorText(error) {
