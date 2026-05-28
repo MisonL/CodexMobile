@@ -6,8 +6,10 @@ import test from 'node:test';
 
 import {
   createSmokeRuntime,
-  resolveRelaySecret,
   terminateSmokeChildren
+} from '../scripts/relay-real-chat-smoke-runtime.mjs';
+import {
+  resolveRelaySecret
 } from '../scripts/relay-real-chat-smoke.mjs';
 import { copyCodexRuntime, defaultRelayBaseUrl } from '../scripts/relay-real-chat-smoke-utils.mjs';
 
@@ -72,7 +74,8 @@ test('createSmokeRuntime removes temp homes when runtime copy fails', async () =
         macUrl: 'ws://127.0.0.1:9791/relay/mac',
         relaySecret: 'local-test-secret-12345678901234567890',
         localPort: 3321,
-        connectorId: 'cleanup-test'
+        connectorId: 'cleanup-test',
+        rootDir: process.cwd()
       });
     } catch (error) {
       copyError = error;

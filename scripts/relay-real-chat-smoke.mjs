@@ -1,18 +1,15 @@
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
+import { createSmokeRuntime } from './relay-real-chat-smoke-runtime.mjs';
 import {
-  copyCodexRuntime,
   defaultRelayBaseUrl,
   freePort,
   relayUrls,
   requestJson,
   resetDefaultDockerRelay,
   sanitizeEvent,
-  sleep,
-  startProcess,
   waitFor
 } from './relay-real-chat-smoke-utils.mjs';
 
@@ -22,27 +19,8 @@ const EXPECTED_REPLY = process.env.CODEXMOBILE_REAL_CHAT_EXPECT || 'CodexMobile�
 const CHAT_MESSAGE = process.env.CODEXMOBILE_REAL_CHAT_MESSAGE ||
   `这是 CodexMobile 本地 Docker relay 真实链路 smoke test。请只回复：${EXPECTED_REPLY}`;
 const TIMEOUT_MS = Number(process.env.CODEXMOBILE_REAL_CHAT_TIMEOUT_MS || 180000);
-const CLEANUP_GRACE_MS = 800;
 const WS_OPEN_TIMEOUT_MS = 10000;
 const TERMINAL_EVENT_TIMEOUT_MS = 30000;
-
-function isChildStillRunning(child) {
-  return child?.exitCode === null && child?.signalCode === null;
-}
-
-export async function terminateSmokeChildren(children, { graceMs = CLEANUP_GRACE_MS, sleepFn = sleep } = {}) {
-  for (const child of [...children].reverse()) {
-    if (isChildStillRunning(child)) {
-      child.kill('SIGTERM');
-    }
-  }
-  await sleepFn(graceMs);
-  for (const child of children) {
-    if (isChildStillRunning(child)) {
-      child.kill('SIGKILL');
-    }
-  }
-}
 
 export function resolveRelaySecret({ baseUrl, env = process.env } = {}) {
   const configured = String(env.CODEXMOBILE_RELAY_SECRET || '').trim();
@@ -53,77 +31,6 @@ export function resolveRelaySecret({ baseUrl, env = process.env } = {}) {
     return DEFAULT_RELAY_SECRET;
   }
   throw new Error('CODEXMOBILE_RELAY_SECRET is required when CODEXMOBILE_RELAY_BASE_URL is not the default local relay.');
-}
-
-export async function createSmokeRuntime({ macUrl, relaySecret, localPort, connectorId }) {
-  const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), 'codexmobile-real-chat-codehome.'));
-  const mobileHome = await fs.mkdtemp(path.join(os.tmpdir(), 'codexmobile-real-chat-mobilehome.'));
-  const children = [];
-
-  const startLocalServer = () => {
-    const logPath = path.join(mobileHome, 'server.log');
-    const child = startProcess({
-      command: 'npm',
-      args: ['start'],
-      cwd: ROOT_DIR,
-      logPath,
-      env: {
-        HOST: '127.0.0.1',
-        PORT: String(localPort),
-        CODEX_HOME: codexHome,
-        CODEXMOBILE_HOME: mobileHome
-      }
-    });
-    children.push(child);
-    return { child, logPath };
-  };
-
-  const startConnector = (logName) => {
-    const logPath = path.join(mobileHome, logName);
-    const child = startProcess({
-      command: 'npm',
-      args: ['run', 'relay:mac'],
-      cwd: ROOT_DIR,
-      logPath,
-      env: {
-        CODEX_HOME: codexHome,
-        CODEXMOBILE_HOME: mobileHome,
-        CODEXMOBILE_RELAY_URL: macUrl,
-        CODEXMOBILE_RELAY_SECRET: relaySecret,
-        CODEXMOBILE_RELAY_LOCAL_URL: `http://127.0.0.1:${localPort}`,
-        CODEXMOBILE_RELAY_DEVICE_NAME: 'real-chat-smoke',
-        CODEXMOBILE_RELAY_CONNECTOR_ID: connectorId,
-        CODEXMOBILE_RELAY_KEEPALIVE_MS: '0'
-      }
-    });
-    children.push(child);
-    return { child, logPath };
-  };
-
-  const cleanup = async ({ keepLogs = false } = {}) => {
-    await terminateSmokeChildren(children);
-    await fs.rm(codexHome, { recursive: true, force: true });
-    if (!keepLogs) {
-      await fs.rm(mobileHome, { recursive: true, force: true });
-    }
-  };
-
-  try {
-    await copyCodexRuntime(codexHome);
-  } catch (error) {
-    await Promise.all([
-      fs.rm(codexHome, { recursive: true, force: true }),
-      fs.rm(mobileHome, { recursive: true, force: true })
-    ]);
-    throw error;
-  }
-  return {
-    codexHome,
-    mobileHome,
-    startLocalServer,
-    startConnector,
-    cleanup
-  };
 }
 
 async function connectLocalMac({ baseUrl, runtime }) {
@@ -270,7 +177,7 @@ async function main() {
   const relayReset = await resetDefaultDockerRelay(baseUrl);
   const localPort = Number(process.env.CODEXMOBILE_REAL_CHAT_LOCAL_PORT || await freePort());
   const connectorId = process.env.CODEXMOBILE_RELAY_CONNECTOR_ID || 'real-chat-smoke';
-  const runtime = await createSmokeRuntime({ macUrl, relaySecret, localPort, connectorId });
+  const runtime = await createSmokeRuntime({ macUrl, relaySecret, localPort, connectorId, rootDir: ROOT_DIR });
   let keepLogs = false;
 
   try {
