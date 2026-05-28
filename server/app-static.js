@@ -36,23 +36,34 @@ export function sendStaticContent(req, res, status, content, headers, ext) {
 
 export async function serveFileFromRoot(req, res, rootDir, requestedPath, cacheControl) {
   const relativePath = requestedPath.replace(/^\/+/, '');
-  const candidate = path.normalize(path.join(rootDir, relativePath));
-  const rootWithSep = rootDir.endsWith(path.sep) ? rootDir : `${rootDir}${path.sep}`;
-  if (candidate !== rootDir && !candidate.startsWith(rootWithSep)) {
+  const resolvedRoot = path.resolve(rootDir);
+  const candidate = path.normalize(path.join(resolvedRoot, relativePath));
+  const rootWithSep = resolvedRoot.endsWith(path.sep) ? resolvedRoot : `${resolvedRoot}${path.sep}`;
+  if (candidate !== resolvedRoot && !candidate.startsWith(rootWithSep)) {
     res.writeHead(403);
     res.end('Forbidden');
     return true;
   }
 
   try {
-    const stat = await fs.stat(candidate);
+    const [realRoot, realCandidate] = await Promise.all([
+      fs.realpath(resolvedRoot),
+      fs.realpath(candidate)
+    ]);
+    const realRootWithSep = realRoot.endsWith(path.sep) ? realRoot : `${realRoot}${path.sep}`;
+    if (realCandidate !== realRoot && !realCandidate.startsWith(realRootWithSep)) {
+      res.writeHead(403);
+      res.end('Forbidden');
+      return true;
+    }
+    const stat = await fs.stat(realCandidate);
     if (!stat.isFile()) {
       res.writeHead(404);
       res.end('Not found');
       return true;
     }
-    const ext = path.extname(candidate);
-    const content = await fs.readFile(candidate);
+    const ext = path.extname(realCandidate);
+    const content = await fs.readFile(realCandidate);
     sendStaticContent(req, res, 200, content, {
       'content-type': mimeTypes.get(ext) || 'application/octet-stream',
       'cache-control': cacheControl,
@@ -67,7 +78,14 @@ export async function serveFileFromRoot(req, res, rootDir, requestedPath, cacheC
 }
 
 export async function serveStatic(req, res, url) {
-  let requestedPath = decodeURIComponent(url.pathname);
+  let requestedPath = '';
+  try {
+    requestedPath = decodeURIComponent(url.pathname);
+  } catch {
+    res.writeHead(400);
+    res.end('Bad request');
+    return true;
+  }
   if (requestedPath === '/codexmobile-root-ca.cer') {
     try {
       const stat = await fs.stat(HTTPS_ROOT_CA_PATH);

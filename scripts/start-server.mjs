@@ -1,10 +1,18 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { CODEXMOBILE_DATA_ROOT } from '../server/runtime-paths.js';
+import { resolveCodexMobileRuntimePaths } from '../server/runtime-paths.js';
 
 const root = path.resolve(import.meta.dirname, '..');
-const logDir = CODEXMOBILE_DATA_ROOT;
+const runtimePaths = resolveCodexMobileRuntimePaths({
+  cwd: root,
+  env: process.env,
+  rootDir: root
+});
+const logDir = runtimePaths.dataRoot;
+if (!path.isAbsolute(logDir)) {
+  throw new Error(`CODEXMOBILE_HOME must resolve to an absolute path: ${logDir}`);
+}
 fs.mkdirSync(logDir, { recursive: true });
 
 const outPath = path.join(logDir, 'server.out.log');
@@ -29,7 +37,10 @@ function dedupePath(value) {
 
 function childEnv() {
   if (process.platform !== 'win32') {
-    return process.env;
+    return {
+      ...process.env,
+      CODEXMOBILE_HOME: logDir
+    };
   }
 
   const env = {};
@@ -47,6 +58,7 @@ function childEnv() {
     process.env.Path,
     process.env.PATH
   ].filter(Boolean).join(path.delimiter));
+  env.CODEXMOBILE_HOME = logDir;
   return env;
 }
 

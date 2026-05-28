@@ -97,7 +97,49 @@ function assertSafeOutputDir(outDir) {
   if (resolved === ROOT_DIR || resolved === distDir) {
     throw new Error('Refusing to overwrite the repository root or dist root.');
   }
-  if (!resolved.startsWith(`${distDir}${path.sep}`)) {
+  const relativeToDist = path.relative(distDir, resolved);
+  if (isOutsideRelativePath(relativeToDist)) {
+    throw new Error('Output directory must be inside dist/.');
+  }
+  assertExistingAncestorInsideDist(nearestExistingPath(resolved), distDir);
+}
+
+function isOutsideRelativePath(relativePath) {
+  return relativePath === '..' || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath);
+}
+
+function nearestExistingPath(targetPath) {
+  let current = targetPath;
+  while (true) {
+    try {
+      fs.lstatSync(current);
+      return current;
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        throw error;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) {
+        throw error;
+      }
+      current = parent;
+    }
+  }
+}
+
+function assertExistingAncestorInsideDist(existingPath, distDir) {
+  const resolvedRoot = fs.realpathSync(ROOT_DIR);
+  const resolvedExisting = fs.realpathSync(existingPath);
+  const relativeToRoot = path.relative(resolvedRoot, resolvedExisting);
+  if (isOutsideRelativePath(relativeToRoot)) {
+    throw new Error('Output directory must be inside dist/.');
+  }
+  if (!fs.existsSync(distDir)) {
+    return;
+  }
+  const resolvedDist = fs.realpathSync(distDir);
+  const relativeToDist = path.relative(resolvedDist, resolvedExisting);
+  if (isOutsideRelativePath(relativeToDist)) {
     throw new Error('Output directory must be inside dist/.');
   }
 }

@@ -1,3 +1,35 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { UPLOAD_ROOT } from './app-config.js';
+
+function attachmentError(message) {
+  return Object.assign(new Error(message), { statusCode: 400 });
+}
+
+function safeUploadPath(value) {
+  if (String(value || '').includes('\u0000')) {
+    throw attachmentError('invalid_attachment_path');
+  }
+  const resolvedRoot = path.resolve(UPLOAD_ROOT);
+  const resolvedPath = path.resolve(String(value || ''));
+  if (resolvedPath === resolvedRoot || !resolvedPath.startsWith(`${resolvedRoot}${path.sep}`)) {
+    throw attachmentError('invalid_attachment_path');
+  }
+  try {
+    const realRoot = fs.realpathSync(resolvedRoot);
+    const realPath = fs.realpathSync(resolvedPath);
+    if (realPath === realRoot || !realPath.startsWith(`${realRoot}${path.sep}`)) {
+      throw attachmentError('invalid_attachment_path');
+    }
+  } catch (error) {
+    if (error.statusCode) {
+      throw error;
+    }
+    throw attachmentError('invalid_attachment_path');
+  }
+  return resolvedPath;
+}
+
 export function normalizeAttachments(value) {
   if (!Array.isArray(value)) {
     return [];
@@ -9,7 +41,7 @@ export function normalizeAttachments(value) {
       name: String(item.name || path.basename(item.path)),
       size: Number(item.size) || 0,
       mimeType: String(item.mimeType || ''),
-      path: String(item.path),
+      path: safeUploadPath(item.path),
       kind: item.kind === 'image' ? 'image' : 'file'
     }));
 }

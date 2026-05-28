@@ -1,5 +1,15 @@
 import path from 'node:path';
 
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const JPEG_MAGIC = Buffer.from([0xff, 0xd8, 0xff]);
+const WEBP_MIN_BYTES = 12;
+const WEBP_RIFF_OFFSET = 0;
+const WEBP_RIFF_END = 4;
+const WEBP_WEBP_OFFSET = 8;
+const WEBP_WEBP_END = 12;
+const WEBP_RIFF = 'RIFF';
+const WEBP_WEBP = 'WEBP';
+
 export function sendJson(res, status, payload) {
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
@@ -27,15 +37,29 @@ export function htmlEscape(value) {
 
 export function readBody(req, maxBytes) {
   return new Promise((resolve, reject) => {
-    let body = '';
+    const chunks = [];
+    let total = 0;
+    let settled = false;
     req.on('data', (chunk) => {
-      body += chunk;
-      if (body.length > maxBytes) {
-        reject(new Error('Request body too large'));
-        req.destroy();
+      if (settled) {
+        return;
       }
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      total += buffer.length;
+      if (total > maxBytes) {
+        settled = true;
+        reject(Object.assign(new Error('Request body too large'), { statusCode: 413, status: 413 }));
+        req.destroy?.();
+        return;
+      }
+      chunks.push(buffer);
     });
     req.on('end', () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      const body = Buffer.concat(chunks).toString('utf8');
       if (!body) {
         resolve({});
         return;
@@ -46,7 +70,12 @@ export function readBody(req, maxBytes) {
         reject(new Error('Invalid JSON body'));
       }
     });
-    req.on('error', reject);
+    req.on('error', (error) => {
+      if (!settled) {
+        settled = true;
+        reject(error);
+      }
+    });
   });
 }
 
@@ -93,6 +122,23 @@ export function sanitizeFileName(fileName) {
   return baseName || 'upload.bin';
 }
 
-export function classifyUpload(mimeType) {
-  return String(mimeType || '').startsWith('image/') ? 'image' : 'file';
+export function hasSupportedImageMagic(data, mimeType) {
+  if (/png/i.test(mimeType)) {
+    return data.length >= PNG_MAGIC.length &&
+      data.subarray(0, PNG_MAGIC.length).equals(PNG_MAGIC);
+  }
+  if (/jpe?g/i.test(mimeType)) {
+    return data.length >= JPEG_MAGIC.length &&
+      data.subarray(0, JPEG_MAGIC.length).equals(JPEG_MAGIC);
+  }
+  if (/webp/i.test(mimeType)) {
+    return data.length >= WEBP_MIN_BYTES &&
+      data.subarray(WEBP_RIFF_OFFSET, WEBP_RIFF_END).toString('ascii') === WEBP_RIFF &&
+      data.subarray(WEBP_WEBP_OFFSET, WEBP_WEBP_END).toString('ascii') === WEBP_WEBP;
+  }
+  return false;
+}
+
+export function classifyUpload(mimeType, data = Buffer.alloc(0)) {
+  return hasSupportedImageMagic(data, mimeType) ? 'image' : 'file';
 }

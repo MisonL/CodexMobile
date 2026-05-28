@@ -50,7 +50,7 @@ CodexMobile Node.js 服务
 
 ## 环境要求
 
-- Node.js 20+
+- Node.js 20.19+
 - npm
 - 已配置好的本机 Codex 环境，默认读取 `~/.codex`
 - 手机和电脑在同一私有网络中，例如 Tailscale 或局域网
@@ -83,7 +83,7 @@ http://<电脑的私网 IP>:3321
 
 ## npm CLI 管理
 
-当前分支提供 `codexmobile` CLI 的产品化安装骨架。现有命令支持本机预检、状态查看、服务启停、日志查看和 macOS 用户级 LaunchAgent 显式安装。`install` 只有在用户主动执行非 dry-run 命令时才会写入 `~/Library/LaunchAgents/com.codexmobile.agent.plist`，不会改变现有 `npm start` 使用方式。
+当前分支提供 `codexmobile` CLI 的产品化安装骨架。现有命令支持本机预检、状态查看、服务启停、日志查看和 macOS 用户级 LaunchAgent 显式安装。`install` 只有在用户主动执行非 dry-run 命令时才会写入 `~/Library/LaunchAgents/com.codexmobile.agent.plist`；只有已通过 `relay-config` 保存有效配置时，才会同时写入 `~/Library/LaunchAgents/com.codexmobile.relay-connector.plist`，不会改变现有 `npm start` 使用方式。
 
 本仓库内可直接执行：
 
@@ -117,7 +117,7 @@ npx codexmobile uninstall --json
 npx codexmobile relay-config --json
 ```
 
-`doctor` 会检查 Node.js 版本、Codex 配置路径、默认 HTTP/HTTPS 端口、Tailscale 命令可用性和本机私网地址。`start` 会用后台进程运行 `codexmobile serve`，日志写入用户级日志目录；若旧 PID 已被其他进程复用或 state 结构不完整，`start` 会清理 stale state 后重新启动。`stop` 只停止 CLI 状态文件记录且命令行匹配的 CodexMobile 进程；`logs` 会读取最近日志并脱敏 relay secret、Bearer token 和 URL token；`status` 会返回用户级数据目录、日志目录、LaunchAgent 路径、plist 是否存在、`launchctl` 是否已加载和脱敏后的 relay 配置。`install --dry-run` 只输出将要创建的目录、plist 内容、将要执行的 `launchctl` 命令和错误处理说明，其中 `bootout` 仅允许服务未加载或不存在类错误失败；`install` 会写入 plist、执行 `plutil -lint`，再以幂等方式 `bootout` 旧用户服务、`bootstrap` 并 `kickstart`。`enable` 同样会幂等重载并 kickstart 当前用户 LaunchAgent，`disable` 调用 `launchctl bootout`。`uninstall` 默认只移除 plist 并保留用户数据目录；删除用户数据必须显式同时传入 `--remove-data --confirm-remove-data`。
+`doctor` 会检查 Node.js 版本、Codex 配置路径、默认 HTTP/HTTPS 端口、Tailscale 命令可用性和本机私网地址。`start` 会用后台进程运行 `codexmobile serve`，日志写入用户级日志目录；若旧 PID 已被其他进程复用或 state 结构不完整，`start` 会清理 stale state 后重新启动。`stop` 只停止 CLI 状态文件记录且命令行匹配的 CodexMobile 进程；`logs` 会读取最近日志并脱敏 relay secret、Bearer token 和 URL token；`status` 会返回用户级数据目录、日志目录、本地 server 与 relay connector 两个 LaunchAgent 的路径、plist 是否存在、`launchctl` 是否已加载和脱敏后的 relay 配置。`install --dry-run` 只输出将要创建的目录、plist 内容、将要执行的 `launchctl` 命令和错误处理说明，其中 `bootout` 仅允许服务未加载或不存在类错误失败；`install` 会写入本地 server plist、执行 `plutil -lint`，再以幂等方式 `bootout` 旧用户服务、`bootstrap` 并 `kickstart`。若已保存有效 relay 配置，`install` 与 `enable` 会同时处理 relay connector；否则 JSON 输出会标记 `relaySkipped`，不会启动未配置的 connector。`install` 或 `enable` 若在部分服务加载后失败，会回收已加载服务；`--json` 错误输出会包含 cleanup 结果。`enable` 同样会幂等重载并 kickstart 当前用户 LaunchAgent，`disable` 调用 `launchctl bootout`。`uninstall` 默认只移除 plist 并保留用户数据目录；删除用户数据必须显式同时传入 `--remove-data --confirm-remove-data`。
 
 保存 Mac connector 的 relay 配置：
 
@@ -129,7 +129,7 @@ node bin/codexmobile.mjs relay-config \
   --json
 ```
 
-该配置写入用户级 `relay.json`，`relay-config --json` 和 `status --json` 只展示脱敏后的 secret。`npm run relay:mac` 会优先读取环境变量；环境变量未设置时，回退读取这份用户级配置。
+该配置写入用户级 `relay.json`，`relay-config --json` 和 `status --json` 只展示脱敏后的 secret。`npm run relay:mac` 会优先读取环境变量；环境变量未设置时，回退读取这份用户级配置。Mac connector identity 会持久写入用户级 `connector-instance-id`，避免重启后生成新身份导致 relay 路由歧义；需要手动轮换时可显式设置 `CODEXMOBILE_RELAY_CONNECTOR_ID`。relay 只会在旧 connector 已离线且没有活跃浏览器工作或 pending request 时接受新 identity；否则继续返回 `ambiguous_mac_route`，需要等待当前工作结束或重启 relay。
 
 ### CLI 验证范围与跨平台边界
 
@@ -145,7 +145,7 @@ node bin/codexmobile.mjs relay-config \
 
 当前平台边界：
 
-- macOS：已实现用户级 LaunchAgent，显式 `install` 才写入 `~/Library/LaunchAgents/com.codexmobile.agent.plist`。
+- macOS：已实现用户级 LaunchAgent，显式 `install` 才写入本地 server plist，且 server 服务设置 `KeepAlive`；relay connector 只有在已保存有效 relay 配置后才写入和启动，避免未配置时进入 KeepAlive 失败循环。
 - Windows：已覆盖路径解析和子进程 PATH 去重；进程状态目前只做 PID 存活判断，不做命令行归属校验；尚未实现 Task Scheduler 自启安装。
 - Linux：已覆盖 XDG 用户数据路径解析；尚未实现 user systemd 自启安装。
 
@@ -185,8 +185,10 @@ npm run space:prepare
 拿到目标 Space git remote 后可直接推送：
 
 ```bash
-npm run space:deploy -- --remote <huggingface-space-git-remote>
+npm run space:deploy -- --remote <huggingface-space-git-remote> --force
 ```
+
+`--force` 会覆盖目标 Space git 历史，仅用于首推或确认要重置生成目录时；目标 Space 可能已有协作者提交时不要使用。
 
 部署前检查当前机器是否具备真实试运行条件：
 
@@ -269,6 +271,7 @@ npm run start:env
 - `CLIPROXYAPI_API_KEY` / `CLI_PROXY_API_KEY`：OpenAI 兼容接口密钥
 - `CODEXMOBILE_CLIPROXY_MANAGEMENT_URL`：CLIProxyAPI 管理接口地址
 - `CODEXMOBILE_CLIPROXY_MANAGEMENT_KEY`：CLIProxyAPI 管理密钥
+- `CODEXMOBILE_SESSION_SCAN_CONCURRENCY`：本地 Codex JSONL 会话扫描并发数，默认 `16`；会话目录极大或磁盘较慢时可调低
 - `CODEXMOBILE_RELAY_URL`：Mac connector 连接的 Space WebSocket 地址，仅 `npm run relay:mac` 使用
 - `CODEXMOBILE_RELAY_SECRET`：Space 和 Mac connector 共享的当前 relay 密钥，至少 32 字符
 - `CODEXMOBILE_RELAY_PREVIOUS_SECRET`：可选旧 relay 密钥，只用于 secret rotation grace window，完成迁移后应清空

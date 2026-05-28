@@ -119,6 +119,6 @@ export async function saveUpload(req) {
     size: part.data.length,
     mimeType: part.mimeType,
     path: filePath,
-    kind: classifyUpload(part.mimeType)
+    kind: classifyUpload(part.mimeType, part.data)
   };
 }

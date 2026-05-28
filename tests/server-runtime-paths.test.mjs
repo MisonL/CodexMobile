@@ -59,6 +59,17 @@ test('relative CODEXMOBILE_HOME is resolved from the server process cwd', () => 
   );
 });
 
+test('runtime paths resolve relative CODEXMOBILE_HOME from explicit cwd instead of rootDir', () => {
+  const paths = resolveCodexMobileRuntimePaths({
+    env: { CODEXMOBILE_HOME: 'runtime' },
+    cwd: '/Users/alice',
+    rootDir: '/repo/codexmobile'
+  });
+
+  assert.equal(paths.dataRoot, '/Users/alice/runtime');
+  assert.equal(paths.modelCacheDir, '/Users/alice/runtime/model-cache');
+});
+
 test('server modules derive writable paths from runtime path constants', () => {
   assert.equal(DATA_DIR, CODEXMOBILE_STATE_DIR);
   assert.equal(UPLOAD_ROOT, CODEXMOBILE_UPLOAD_ROOT);

@@ -1,19 +1,27 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { CODEXMOBILE_MODEL_CACHE_DIR } from '../server/runtime-paths.js';
+import { resolveCodexMobileRuntimePaths } from '../server/runtime-paths.js';
 
 const root = path.resolve(import.meta.dirname, '..');
 const serviceDir = path.join(root, 'asr-service');
-const cacheDir = CODEXMOBILE_MODEL_CACHE_DIR;
+const DEFAULT_HEALTH_TIMEOUT_MS = 60000;
+const DEFAULT_BUILD_TIMEOUT_MS = 20 * 60 * 1000;
+const HEALTH_REQUEST_TIMEOUT_MS = 2000;
+const HEALTH_POLL_INTERVAL_MS = 2000;
+const { modelCacheDir: cacheDir } = resolveCodexMobileRuntimePaths({
+  cwd: root,
+  env: process.env,
+  rootDir: root
+});
 const containerName = process.env.CODEXMOBILE_ASR_CONTAINER || 'codexmobile-sensevoice-asr';
 const legacyContainerName = process.env.CODEXMOBILE_ASR_LEGACY_CONTAINER || 'codexmobile-asr';
 const image = process.env.CODEXMOBILE_ASR_IMAGE || 'codexmobile-sensevoice-asr:latest';
 const port = process.env.CODEXMOBILE_ASR_PORT || '8000';
 const model = process.env.CODEXMOBILE_TRANSCRIBE_MODEL || 'iic/SenseVoiceSmall';
 const device = process.env.CODEXMOBILE_ASR_DEVICE || 'cpu';
-const healthTimeoutMs = Number(process.env.CODEXMOBILE_ASR_HEALTH_TIMEOUT_MS || 60000);
-const buildTimeoutMs = Number(process.env.CODEXMOBILE_ASR_BUILD_TIMEOUT_MS || 20 * 60 * 1000);
+const healthTimeoutMs = Number(process.env.CODEXMOBILE_ASR_HEALTH_TIMEOUT_MS || DEFAULT_HEALTH_TIMEOUT_MS);
+const buildTimeoutMs = Number(process.env.CODEXMOBILE_ASR_BUILD_TIMEOUT_MS || DEFAULT_BUILD_TIMEOUT_MS);
 const rebuild = ['1', 'true', 'yes', 'on'].includes(String(process.env.CODEXMOBILE_ASR_REBUILD || '').toLowerCase());
 const recreate = ['1', 'true', 'yes', 'on'].includes(String(process.env.CODEXMOBILE_ASR_RECREATE || '').toLowerCase());
 
@@ -155,7 +163,7 @@ function startContainer() {
 
 async function readHealth() {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 2000);
+  const timer = setTimeout(() => controller.abort(), HEALTH_REQUEST_TIMEOUT_MS);
   try {
     const response = await fetch(`http://127.0.0.1:${port}/health`, { signal: controller.signal });
     const text = await response.text();
@@ -182,7 +190,7 @@ async function waitForHealth() {
     } catch {
       // The container may still be booting.
     }
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, HEALTH_POLL_INTERVAL_MS));
   }
   return { ready: false, health: lastHealth };
 }

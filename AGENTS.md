@@ -154,7 +154,7 @@ npm run asr:start
 
 | 项目 | 要求 | 验证命令 |
 | --- | --- | --- |
-| Node.js | 20+ | `node --version` |
+| Node.js | 20.19+ | `node --version` |
 | npm | 随 Node 安装 | `npm --version` |
 | Codex 配置 | 默认读取 `~/.codex` | 检查 `CODEX_HOME` |
 | 私有网络 | Tailscale 或局域网 | 手机访问电脑私网 IP 的 `3321` 端口 |
