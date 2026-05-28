@@ -19,11 +19,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 20.19.x
           cache: npm
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Static lint
+        run: npm run lint
 
       - name: Syntax checks
         run: |
@@ -41,15 +44,25 @@ jobs:
           node --check server/relay-http-stream.js
           node --check server/relay-protocol.js
           node --check server/index.js
+          node --check server/app-attachments.js
+          node --check server/app-upload.js
           node --check server/http-utils.js
           node --check server/realtime-voice.js
           node --check server/realtime-voice-config.js
           node --check server/realtime-voice-handoff.js
           node --check server/realtime-voice-providers.js
+          node --check server/voice-speaker.js
+          node --check server/voice-speaker-config.js
+          node --check server/voice-speaker-edge.js
           node --check server/lark-cli.js
           node --check server/lark-cli-definitions.js
           node --check server/lark-cli-runner.js
           node --check server/lark-cli-status.js
+          node --check cli/launch-agent.mjs
+          node --check cli/launch-agent-plist.mjs
+          node --check cli/launch-agent-services.mjs
+          node --check scripts/deploy-hf-space.mjs
+          node --check scripts/prepare-hf-space.mjs
           node --check scripts/relay-mac-client-backpressure.mjs
           node --check scripts/relay-mac-client-body.mjs
           node --check scripts/relay-mac-client-config.mjs
@@ -70,9 +83,20 @@ jobs:
           node --check scripts/verify-hf-space-network.mjs
           node --check tests/space-verify.test.mjs
           node --check tests/space-verify-fixture.mjs
+          node --check tests/cli-launch-agent-cleanup.test.mjs
+          node --check tests/voice-speaker.test.mjs
 
       - name: Space verifier tests
         run: npm run test:space-verify
+
+      - name: Unit tests
+        run: |
+          npm run test:cli
+          npm run test:server
+          npm run test:client
+          npm run test:relay-mac
+          npm run test:relay-runtime
+          npm run test:deploy
 
       - name: Relay smoke
         run: npm run smoke:relay
