@@ -89,7 +89,34 @@ function emitThreadEvent(event, sessionId, turnId, emit, state) {
 }
 
 function emitAssistantItem({ item, kind, status, done, messageId, sessionId, turnId, emit, state }) {
-  if (kind === 'agent_message' || item.phase === 'commentary') {
+  if (kind === 'agent_message') {
+    const content = contentFromItem(item);
+    if (!content.trim()) {
+      return true;
+    }
+    state.hadAssistantText = true;
+    emitStatus(emit, {
+      sessionId,
+      turnId,
+      kind,
+      status: 'running',
+      label: compactStatusLabel(content)
+    });
+    emit({
+      type: 'assistant-update',
+      sessionId,
+      turnId,
+      messageId,
+      role: 'assistant',
+      kind,
+      phase: item.phase || 'final_answer',
+      content,
+      done: done || status === 'completed'
+    });
+    return true;
+  }
+
+  if (item.phase === 'commentary') {
     const content = contentFromItem(item);
     if (content.trim()) {
       emitStatus(emit, {

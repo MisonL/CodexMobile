@@ -8,7 +8,10 @@ import {
   languageForProvider,
   normalizeTranscriptText,
   parseErrorText,
+  parseTranscriptionText,
+  providerHost,
   providerMessage,
+  safeProviderMessage,
   shouldFallbackOpenAIModel,
   statusForError,
   voiceTranscriptionConfig

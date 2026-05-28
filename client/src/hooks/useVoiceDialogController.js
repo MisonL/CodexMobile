@@ -11,7 +11,8 @@ export function useVoiceDialogController({
   runningById,
   rememberRelayOperationLock,
   onVoiceSubmit,
-  submitCodexMessage
+  submitCodexMessage,
+  onStopMessageSpeech
 }) {
   const awaitingTurnRef = useRef(null);
   const lastSpokenRef = useRef('');
@@ -29,21 +30,21 @@ export function useVoiceDialogController({
   const [assistantText, setAssistantText] = useState('');
   const [handoffDraft, setHandoffDraft] = useState('');
 
-  function setMode(next) {
+  const setMode = (next) => {
     stateRef.current = next;
     setState(next);
-  }
+  };
 
-  function setHandoffDraftValue(next) {
+  const setHandoffDraftValue = (next) => {
     const value = String(next || '');
     handoffDraftRef.current = value;
     setHandoffDraft(value);
-  }
+  };
 
-  function setErrorBriefly(message) {
+  const setErrorBriefly = (message) => {
     setError(message);
     setMode('error');
-  }
+  };
 
   const common = {
     status,
@@ -70,22 +71,22 @@ export function useVoiceDialogController({
   const recorded = useRecordedVoiceDialog(common, realtime);
   clearRecordedAudioRef.current = recorded.clearAudio;
 
-  function continueHandoffCollection() {
+  const continueHandoffCollection = () => {
     setHandoffDraftValue('');
     setError('');
     setAssistantText('');
     realtime.resumeAssistantAudio();
     setMode('listening');
-  }
+  };
 
-  function cancelHandoffConfirmation() {
+  const cancelHandoffConfirmation = () => {
     setHandoffDraftValue('');
     setError('');
     realtime.resumeAssistantAudio();
     setMode('listening');
-  }
+  };
 
-  async function submitHandoffToCodex() {
+  const submitHandoffToCodex = async () => {
     const message = handoffDraftRef.current.trim();
     if (!message) {
       return;
@@ -106,9 +107,10 @@ export function useVoiceDialogController({
       setError(submitError.message || '发送给 Codex 失败');
       setMode('handoff');
     }
-  }
+  };
 
-  function openDialog() {
+  const openDialog = () => {
+    onStopMessageSpeech?.();
     recorded.unlockAudio();
     openRef.current = true;
     realtimeRef.current = Boolean(status.voiceRealtime?.configured);
@@ -131,9 +133,9 @@ export function useVoiceDialogController({
         recorded.startRecording();
       }
     }, 80);
-  }
+  };
 
-  function closeDialog() {
+  const closeDialog = () => {
     autoListenRef.current = false;
     openRef.current = false;
     awaitingTurnRef.current = null;
@@ -146,7 +148,7 @@ export function useVoiceDialogController({
     setTranscript('');
     setAssistantText('');
     setMode('idle');
-  }
+  };
 
   useEffect(() => () => closeDialog(), []);
 

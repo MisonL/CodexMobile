@@ -43,7 +43,7 @@
 
 .voice-dialog-actions button {
   flex: 1 1 0;
-  min-height: 38px;
+  min-height: 44px;
   border: 0;
   border-radius: 10px;
   font-weight: 650;
@@ -77,6 +77,10 @@
   border-color: #303030;
   background: rgba(31, 31, 31, 0.98);
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.34);
+}
+
+[data-theme="dark"] .composer-notice {
+  color: #ffb4ae;
 }
 
 [data-theme="dark"] .menu-section-label {

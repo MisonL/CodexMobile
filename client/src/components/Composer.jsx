@@ -26,7 +26,8 @@ export function Composer({
   voiceDialogActive,
   disabled,
   disabledReason,
-  actionDisabledReasons = {}
+  actionDisabledReasons = {},
+  backgroundInert = false
 }) {
   const textareaRef = useRef(null);
   const imageInputRef = useRef(null);
@@ -51,6 +52,15 @@ export function Composer({
   const sendDisabledReason = actionDisabledReasons.send || disabledReason;
   const voiceDisabledReason = actionDisabledReasons.voice || disabledReason;
   const voiceDialogDisabledReason = actionDisabledReasons.voiceDialog || disabledReason;
+  const inertProps = backgroundInert ? { inert: '' } : {};
+  const stopOnly = running && !hasInput;
+  const sendButtonDisabled = uploading || (stopOnly ? false : Boolean(sendDisabledReason) || !hasInput);
+  const actionNotice = [
+    sendDisabledReason && `发送：${sendDisabledReason}`,
+    uploadDisabledReason && `上传：${uploadDisabledReason}`,
+    voiceDisabledReason && `语音：${voiceDisabledReason}`,
+    voiceDialogDisabledReason && `对话：${voiceDialogDisabledReason}`
+  ].filter(Boolean)[0] || '';
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -62,17 +72,32 @@ export function Composer({
   }, [input]);
 
 
-  function submit(event) {
+  const submit = (event) => {
     event.preventDefault();
+    submitMessage();
+  };
+
+  const submitMessage = () => {
     if (running && !hasInput) {
       onAbort();
       return;
     }
-    if (hasInput && !disabled && !actionDisabledReasons.send) {
-      onSubmit();
-      setOpenMenu(null);
+    if (sendButtonDisabled) {
+      return;
     }
-  }
+    onSubmit();
+    setOpenMenu(null);
+  };
+
+  const handleKeyDown = (event) => {
+    const composing = event.isComposing || event.nativeEvent?.isComposing;
+    const modified = event.shiftKey || event.altKey || event.metaKey || event.ctrlKey;
+    if (event.key !== 'Enter' || modified || composing) {
+      return;
+    }
+    event.preventDefault();
+    submitMessage();
+  };
 
   function toggleMenu(name) {
     setOpenMenu((current) => (current === name ? null : name));
@@ -88,7 +113,7 @@ export function Composer({
   }
 
   return (
-    <form className="composer-wrap" onSubmit={submit}>
+    <form className="composer-wrap" onSubmit={submit} {...inertProps}>
       <input
         ref={imageInputRef}
         className="file-input"
@@ -175,6 +200,11 @@ export function Composer({
           <span>{voiceError || (voiceSending ? '正在发送...' : voiceTranscribing ? '正在转写...' : '正在录音...')}</span>
         </div>
       ) : null}
+      {actionNotice ? (
+        <div className="composer-notice" role="status" aria-live="polite">
+          {actionNotice}
+        </div>
+      ) : null}
       <div className="composer">
         {attachments.length ? (
           <div className="attachment-tray">
@@ -195,8 +225,12 @@ export function Composer({
           rows={1}
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder={disabledReason || '给 Codex 发送消息'}
+          name="message"
+          autoComplete="off"
+          aria-label="消息"
+          placeholder={disabledReason || '给 Codex 发送消息...'}
           disabled={disabled}
+          onKeyDown={handleKeyDown}
         />
         <div className="composer-controls">
           <div className="control-left">
@@ -244,8 +278,9 @@ export function Composer({
             <button
               type="submit"
               className={`send-button ${running ? 'is-running' : ''}`}
-              disabled={uploading || (Boolean(sendDisabledReason) && !running) || (!hasInput && !running)}
+              disabled={sendButtonDisabled}
               title={sendDisabledReason || undefined}
+              aria-label={running && !hasInput ? '停止生成' : uploading ? '正在上传' : '发送消息'}
             >
               {running && !hasInput ? <Square size={16} /> : uploading ? <Loader2 className="spin" size={16} /> : <ArrowUp size={19} />}
             </button>

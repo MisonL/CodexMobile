@@ -207,5 +207,14 @@ export async function requestSpeech({ text, config, apiKey }) {
     throw error;
   }
 
-  return Buffer.from(await response.arrayBuffer());
+  const audioBuffer = await response.arrayBuffer();
+  const audioData = Buffer.from(audioBuffer);
+  if (!audioData.length) {
+    const error = new Error('语音合成接口未返回音频数据');
+    error.status = 502;
+    error.statusCode = 502;
+    throw error;
+  }
+
+  return audioData;
 }

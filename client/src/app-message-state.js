@@ -1,4 +1,9 @@
-import { activityStepFromPayload, isGenericActivityLabel, statusMessageId } from './app-activity-labels.js';
+import {
+  activityStepFromPayload,
+  briefActivityLabel,
+  isGenericActivityLabel,
+  statusMessageId
+} from './app-activity-labels.js';
 import { payloadRunKeys } from './app-core-utils.js';
 
 export function mergeActivityStep(currentSteps, step) {
@@ -63,7 +68,10 @@ export function upsertStatusMessage(current, payload) {
     normalizedPayload.kind === 'reasoning'
       ? previous?.detail || ''
       : normalizedPayload.detail || previous?.detail || '';
-  const isTurnLevel = normalizedPayload.kind === 'turn' || normalizedPayload.kind === 'error';
+  const status = normalizedPayload.status || previous?.status || 'running';
+  const isTerminalStatus = ['aborted', 'completed', 'failed'].includes(status);
+  const kind = normalizedPayload.kind || (isTerminalStatus ? 'turn' : previous?.kind || 'turn');
+  const isTurnLevel = kind === 'turn' || kind === 'error';
   const nextMessage = {
     id,
     role: 'activity',
@@ -72,8 +80,8 @@ export function upsertStatusMessage(current, payload) {
     content: isTurnLevel ? (normalizedPayload.label || previous?.content || '正在处理') : (previous?.content || '正在处理'),
     label: isTurnLevel ? (normalizedPayload.label || previous?.label || '正在处理') : (previous?.label || '正在处理'),
     detail,
-    kind: normalizedPayload.kind || previous?.kind || 'turn',
-    status: isTurnLevel ? (normalizedPayload.status || previous?.status || 'running') : (previous?.status || 'running'),
+    kind,
+    status: isTurnLevel ? status : (previous?.status || 'running'),
     timestamp: normalizedPayload.timestamp || previous?.timestamp || new Date().toISOString(),
     activities: mergeActivityStep(previous?.activities || [], activityStepFromPayload(normalizedPayload))
   };
@@ -150,12 +158,136 @@ export function removeActivityMessagesForTurn(messages, payload) {
   });
 }
 
+function normalizedContent(message) {
+  return String(message?.content || '').trim();
+}
+
+function contentKey(message) {
+  return `${message?.role || ''}\n${normalizedContent(message)}`;
+}
+
+function countServerContent(messages) {
+  const counts = new Map();
+  for (const message of messages) {
+    const key = contentKey(message);
+    if (!normalizedContent(message)) {
+      continue;
+    }
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return counts;
+}
+
+function isPendingLocalMessage(message) {
+  return (
+    message?.role === 'activity' ||
+    message?.preview ||
+    String(message?.id || '').startsWith('local-')
+  );
+}
+
+function countPendingLocalContent(messages) {
+  const counts = new Map();
+  for (const message of messages || []) {
+    if (!isPendingLocalMessage(message) || !normalizedContent(message)) {
+      continue;
+    }
+    const key = contentKey(message);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return counts;
+}
+
+function consumeContentMatch(counts, message) {
+  const key = contentKey(message);
+  const count = counts.get(key) || 0;
+  if (!count) {
+    return false;
+  }
+  if (count === 1) {
+    counts.delete(key);
+  } else {
+    counts.set(key, count - 1);
+  }
+  return true;
+}
+
+function turnScopedRunKeys(payload) {
+  return [payload?.turnId, payload?.previousSessionId].filter(Boolean);
+}
+
+export function mergeServerMessagesWithLocalState(current, serverMessages, options = {}) {
+  const next = Array.isArray(serverMessages) ? [...serverMessages] : [];
+  const activeKeys = new Set((options.activeRuns || []).flatMap((run) => payloadRunKeys(run)));
+  const serverIds = new Set(next.map((message) => message.id).filter(Boolean));
+  const serverKeysByRole = new Map();
+  for (const message of next) {
+    for (const key of turnScopedRunKeys(message)) {
+      const role = message.role || '';
+      const roleKeys = serverKeysByRole.get(role) || new Set();
+      roleKeys.add(key);
+      serverKeysByRole.set(role, roleKeys);
+    }
+  }
+  const serverContentCounts = countServerContent(next);
+  const pendingLocalContentCounts = countPendingLocalContent(current);
+  const shouldPreserveLocalRun = (message) => {
+    if (options.preserveLocalRuns) {
+      return true;
+    }
+    const keys = message.turnId ? [message.turnId] : payloadRunKeys(message);
+    return keys.some((key) => activeKeys.has(key));
+  };
+  const serverHasRoleKey = (message) => {
+    const roleKeys = serverKeysByRole.get(message.role || '');
+    const keys = turnScopedRunKeys(message);
+    return Boolean(keys.length && keys.some((key) => roleKeys?.has(key)));
+  };
+  const serverHasAssistantForRun = (message) => {
+    const roleKeys = serverKeysByRole.get('assistant');
+    const keys = turnScopedRunKeys(message);
+    return Boolean(keys.length && keys.some((key) => roleKeys?.has(key)));
+  };
+  const hasServerMessageForLocal = (message) => {
+    if (serverIds.has(message.id)) {
+      return true;
+    }
+    if (message.role === 'activity' || message.preview) {
+      return serverHasAssistantForRun(message);
+    }
+    if (serverHasRoleKey(message)) {
+      return true;
+    }
+    if ((pendingLocalContentCounts.get(contentKey(message)) || 0) > 1) {
+      return false;
+    }
+    return consumeContentMatch(serverContentCounts, message);
+  };
+  for (const message of current || []) {
+    if (message.transient) {
+      continue;
+    }
+    if (!isPendingLocalMessage(message)) {
+      continue;
+    }
+    if (!shouldPreserveLocalRun(message)) {
+      continue;
+    }
+    if (hasServerMessageForLocal(message)) {
+      continue;
+    }
+    next.push(message);
+  }
+  return next;
+}
+
 export function upsertAssistantMessage(current, payload) {
   const content = String(payload.content || '').trim();
   if (!content) {
     return current;
   }
   const id = payload.messageId || `assistant-${payload.turnId || Date.now()}`;
+  const isPreview = Boolean(payload.preview);
   const nextMessage = {
     id,
     role: 'assistant',
@@ -163,14 +295,21 @@ export function upsertAssistantMessage(current, payload) {
     timestamp: new Date().toISOString(),
     turnId: payload.turnId || null,
     sessionId: payload.sessionId || null,
-    kind: payload.kind
+    kind: payload.kind,
+    preview: isPreview || undefined
   };
   const withoutActivity = removeActivityMessagesForTurn(current, payload);
-  const existingIndex = withoutActivity.findIndex((message) => message.id === id);
+  const withoutStalePreview =
+    !isPreview && payload.turnId
+      ? withoutActivity.filter(
+        (message) => !(message.role === 'assistant' && message.preview && message.turnId === payload.turnId)
+      )
+      : withoutActivity;
+  const existingIndex = withoutStalePreview.findIndex((message) => message.id === id);
   if (existingIndex >= 0) {
-    const next = [...withoutActivity];
+    const next = [...withoutStalePreview];
     next[existingIndex] = nextMessage;
     return next;
   }
-  return [...withoutActivity, nextMessage];
+  return [...withoutStalePreview, nextMessage];
 }

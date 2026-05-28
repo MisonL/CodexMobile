@@ -8,7 +8,7 @@ import {
   initializeAuth,
   verifyToken
 } from './auth.js';
-import { refreshCodexCache } from './codex-data.js';
+import { refreshCodexCache, refreshProjectCache } from './codex-data.js';
 import { sendJson } from './http-utils.js';
 import { startVoiceRealtimeProxy } from './realtime-voice.js';
 import { handleApi } from './api-router.js';
@@ -73,6 +73,7 @@ function createUpgradeHandler(wss, realtimeWss) {
 
 async function startHttpServer(handleUpgrade) {
   const auth = await initializeAuth();
+  await refreshProjectCache().catch((error) => console.warn('[sync] Initial project refresh failed:', error.message));
   const server = http.createServer(requestHandler);
   server.on('upgrade', handleUpgrade);
   server.listen(PORT, HOST, () => {

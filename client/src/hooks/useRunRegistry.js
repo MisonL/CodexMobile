@@ -1,6 +1,6 @@
 import { hasRunningKey, payloadRunKeys, selectedRunKeys } from '../app-core-utils.js';
 
-export function useRunRegistry(app) {
+export function createRunRegistry(app) {
   const running =
     hasRunningKey(app.runningById, selectedRunKeys(app.selectedSession)) ||
     app.messages.some(
@@ -41,9 +41,22 @@ export function useRunRegistry(app) {
   function syncActiveRunsFromStatus(nextStatus) {
     const activeRuns = Array.isArray(nextStatus?.activeRuns) ? nextStatus.activeRuns : [];
     if (!activeRuns.length) {
+      const shouldPreserveLocalRuns =
+        app.activePollsRef.current.size > 0 ||
+        app.turnRefreshTimersRef.current.size > 0 ||
+        Date.now() - app.lastLocalRunAtRef.current < 15000;
+      if (!shouldPreserveLocalRuns) {
+        app.setRunningById((current) => {
+          if (!Object.keys(current).length) {
+            app.runningByIdRef.current = current;
+            return current;
+          }
+          app.runningByIdRef.current = {};
+          return {};
+        });
+      }
       app.setMessages((current) => {
-        const hasRecentLocalRun = Date.now() - app.lastLocalRunAtRef.current < 15000;
-        if (app.activePollsRef.current.size || app.turnRefreshTimersRef.current.size || hasRecentLocalRun) {
+        if (shouldPreserveLocalRuns) {
           return current;
         }
         return current.filter(
@@ -86,4 +99,8 @@ export function useRunRegistry(app) {
     syncActiveRunsFromStatus,
     payloadMatchesCurrentConversation
   };
+}
+
+export function useRunRegistry(app) {
+  return createRunRegistry(app);
 }

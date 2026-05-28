@@ -1,7 +1,16 @@
+import { useEffect, useRef } from 'react';
 import { Check, ChevronLeft, Loader2, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { FeishuLogoIcon } from '../FeishuLogoIcon.jsx';
 
 export function DocsPanel({ open, docs, busy, error, onClose, onConnect, onDisconnect, onOpenHome, onOpenAuth, onRefresh }) {
+  const closeButtonRef = useRef(null);
+
+  useEffect(() => {
+    if (open) {
+      closeButtonRef.current?.focus();
+    }
+  }, [open]);
+
   if (!open) {
     return null;
   }
@@ -51,7 +60,7 @@ export function DocsPanel({ open, docs, busy, error, onClose, onConnect, onDisco
   return (
     <section className="docs-panel" role="dialog" aria-modal="true" aria-label="飞书文档">
       <header className="docs-panel-header">
-        <button className="icon-button" type="button" onClick={onClose} aria-label="关闭文档">
+        <button ref={closeButtonRef} className="icon-button" type="button" onClick={onClose} aria-label="关闭文档">
           <ChevronLeft size={22} />
         </button>
         <div className="docs-panel-title">

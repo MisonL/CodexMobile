@@ -36,8 +36,12 @@ export function PairingScreen({ onPaired }) {
       <h1>CodexMobile</h1>
       <p>输入电脑端启动日志里的配对码。</p>
       <form className="pairing-form" onSubmit={handlePair}>
+        <label className="sr-only" htmlFor="pairing-code">配对码</label>
         <input
+          id="pairing-code"
+          name="pairingCode"
           inputMode="numeric"
+          autoComplete="one-time-code"
           maxLength={6}
           placeholder="6 位配对码"
           value={code}
@@ -48,7 +52,7 @@ export function PairingScreen({ onPaired }) {
           连接
         </button>
       </form>
-      {error ? <div className="pairing-error">{error}</div> : null}
+      {error ? <div className="pairing-error" role="alert">{error}</div> : null}
     </main>
   );
 }

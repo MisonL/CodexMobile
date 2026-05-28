@@ -1,21 +1,18 @@
-
 .lightbox-top {
   display: flex;
   justify-content: flex-end;
 }
-
 .lightbox-close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 42px;
-  height: 42px;
+  width: 44px;
+  height: 44px;
   border: 0;
   border-radius: 50%;
   color: #fff;
   background: rgba(255, 255, 255, 0.14);
 }
-
 .lightbox-stage {
   min-height: 0;
   display: grid;
@@ -44,7 +41,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 14px;
   border: 0;
   border-radius: 999px;
@@ -94,6 +91,10 @@
   border-color: rgba(255, 107, 98, 0.26);
 }
 
+[data-theme="dark"] .activity-detail {
+  color: #ffc2bd;
+}
+
 [data-theme="dark"] .activity-steps {
   border-top-color: #383838;
 }
@@ -110,6 +111,10 @@
 [data-theme="dark"] .message-action:focus-visible,
 [data-theme="dark"] .message-action:active {
   color: var(--text);
+}
+
+[data-theme="dark"] .message-action.is-speaking {
+  color: var(--accent);
 }
 
 [data-theme="dark"] .message-image-link {
@@ -150,6 +155,14 @@
   backdrop-filter: blur(18px);
   border-top: 1px solid rgba(222, 223, 220, 0.84);
   overflow: visible;
+}
+
+.composer-notice {
+  margin: 0 4px 7px;
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
 }
 
 [data-keyboard="open"] .composer-wrap {
@@ -213,7 +226,7 @@
   align-items: center;
   gap: 9px;
   width: 100%;
-  min-height: 38px;
+  min-height: 44px;
   padding: 8px 9px;
   border: 0;
   border-radius: 8px;
@@ -255,6 +268,11 @@
   overflow: hidden;
 }
 
+.composer:focus-within {
+  border-color: rgba(23, 78, 184, 0.46);
+  box-shadow: 0 0 0 3px rgba(23, 78, 184, 0.12);
+}
+
 .attachment-tray {
   display: flex;
   gap: 6px;
@@ -268,8 +286,8 @@
   align-items: center;
   gap: 5px;
   max-width: 260px;
-  height: 30px;
-  padding: 0 5px 0 8px;
+  min-height: 44px;
+  padding: 0 0 0 10px;
   border-radius: 999px;
   color: #4f5661;
   background: #f0f1ee;

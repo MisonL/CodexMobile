@@ -8,8 +8,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 44px;
+  height: 44px;
   border: 0;
   border-radius: 50%;
   color: #737a83;
@@ -65,8 +65,9 @@
 .model-select {
   display: inline-flex;
   align-items: center;
+  flex: 0 1 auto;
   gap: 3px;
-  height: 32px;
+  min-height: 44px;
   border: 0;
   color: #60666e;
   background: transparent;
@@ -89,8 +90,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
   gap: 4px;
-  height: 32px;
+  min-height: 44px;
   padding: 0 9px;
   border: 0;
   border-radius: 999px;
@@ -111,8 +113,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  flex: 0 0 44px;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
   border: 0;
   border-radius: 50%;
 }
@@ -200,7 +204,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  min-height: 32px;
+  min-height: 44px;
 }
 
 .voice-dialog-header span {
@@ -217,8 +221,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   border: 0;
   border-radius: 50%;
   color: #69717c;

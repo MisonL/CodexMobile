@@ -141,17 +141,22 @@ export function useChatActions(app, runRegistry, turnPolling, rememberRelayOpera
     }
   }
 
-  async function handleSubmit() {
+  const handleSubmit = async () => {
     const message = app.input.trim();
     if ((!message && !app.attachments.length) || !app.selectedProject) {
       return;
     }
     try {
-      await submitCodexMessage({ message, attachmentsForTurn: app.attachments, clearComposer: true });
+      await submitCodexMessage({
+        message,
+        attachmentsForTurn: app.attachments,
+        clearComposer: true,
+        restoreTextOnError: true
+      });
     } catch {
       // submitCodexMessage already reflects the failure in the chat UI.
     }
-  }
+  };
 
   async function handleVoiceSubmit(transcript) {
     const message = String(transcript || '').trim();

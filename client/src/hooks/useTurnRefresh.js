@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
-import { hasVisibleAssistantForTurn } from '../app-core-utils.js';
+import { hasAssistantResultForTurn } from '../app-core-utils.js';
 import {
-  hasAssistantMessageForTurn,
   removeActivityMessagesForTurn,
   upsertStatusMessage
 } from '../app-message-state.js';
@@ -19,13 +18,13 @@ export function useTurnRefresh(app, runRegistry) {
     }
   }
 
-  async function refreshMessagesForPayload(payload) {
+  const refreshMessagesForPayload = async (payload) => {
     if (!payload?.sessionId || !runRegistry.payloadMatchesCurrentConversation(payload)) {
       return false;
     }
     try {
       const data = await apiFetch(`/api/sessions/${encodeURIComponent(payload.sessionId)}/messages?limit=120`);
-      if (data.messages?.length && hasVisibleAssistantForTurn(data.messages, payload)) {
+      if (data.messages?.length && hasAssistantResultForTurn(data.messages, payload)) {
         app.setMessages(data.messages);
         return true;
       }
@@ -33,9 +32,9 @@ export function useTurnRefresh(app, runRegistry) {
       return false;
     }
     return false;
-  }
+  };
 
-  function finalizeTurnWithoutAssistant(payload) {
+  const finalizeTurnWithoutAssistant = (payload) => {
     if (!payload?.turnId) {
       return;
     }
@@ -43,20 +42,21 @@ export function useTurnRefresh(app, runRegistry) {
     app.setMessages((current) =>
       upsertStatusMessage(current, {
         ...payload,
+        kind: 'turn',
         status: 'completed',
         label: '任务已完成',
         detail: payload.error || payload.detail || ''
       })
     );
     runRegistry.clearRun(payload);
-  }
+  };
 
-  function markTurnCompleted(payload, detail = '结果同步中') {
+  const markTurnCompleted = (payload, detail = '结果同步中') => {
     if (!payload?.turnId) {
       return;
     }
     app.setMessages((current) => {
-      if (hasAssistantMessageForTurn(current, payload)) {
+      if (hasAssistantResultForTurn(current, payload)) {
         return removeActivityMessagesForTurn(current, payload);
       }
       return upsertStatusMessage(current, {
@@ -67,7 +67,7 @@ export function useTurnRefresh(app, runRegistry) {
         detail
       });
     });
-  }
+  };
 
   function scheduleTurnRefresh(payload, attempt = 0) {
     const turnId = payload?.turnId;

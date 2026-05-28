@@ -1,3 +1,5 @@
+const SPOKEN_TEXT_MAX_LENGTH = 2400;
+
 export function spokenReplyText(value) {
   return String(value || '')
     .replace(/!\[[^\]]*]\([^)]+\)/g, '')
@@ -7,7 +9,64 @@ export function spokenReplyText(value) {
     .replace(/[#>*_~]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 2400);
+    .slice(0, SPOKEN_TEXT_MAX_LENGTH);
+}
+
+const MESSAGE_SPEECH_FIRST_SEGMENT_CHARS = 180;
+const MESSAGE_SPEECH_SEGMENT_CHARS = 420;
+
+export function splitSpeechSegments(value) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) {
+    return [];
+  }
+  const sentencePattern = /[^.!?;,\u3002\uff01\uff1f\uff1b\uff0c]+[.!?;,\u3002\uff01\uff1f\uff1b\uff0c]?/g;
+  const sentences = text.match(sentencePattern) || [text];
+  const segments = [];
+  let current = '';
+
+  const pushCurrent = () => {
+    const segment = current.trim();
+    if (segment) {
+      segments.push(segment);
+    }
+    current = '';
+  };
+
+  const pushLongText = (chunk, limit) => {
+    let rest = chunk.trim();
+    while (rest.length > limit) {
+      const slice = rest.slice(0, limit).trim();
+      if (slice) {
+        segments.push(slice);
+      }
+      rest = rest.slice(limit).trim();
+    }
+    current = rest;
+  };
+
+  for (const sentence of sentences) {
+    const chunk = sentence.trim();
+    if (!chunk) {
+      continue;
+    }
+    const limit = segments.length ? MESSAGE_SPEECH_SEGMENT_CHARS : MESSAGE_SPEECH_FIRST_SEGMENT_CHARS;
+    const next = current ? `${current} ${chunk}` : chunk;
+    if (next.length <= limit) {
+      current = next;
+      continue;
+    }
+    if (current) {
+      pushCurrent();
+    }
+    if (chunk.length > limit) {
+      pushLongText(chunk, limit);
+    } else {
+      current = chunk;
+    }
+  }
+  pushCurrent();
+  return segments;
 }
 
 export function voiceDialogStatusLabel(state) {

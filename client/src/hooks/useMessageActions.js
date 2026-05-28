@@ -1,8 +1,8 @@
 import { apiFetch } from '../api.js';
 import { isDraftSession } from '../app-core-utils.js';
 
-export function useMessageActions(app, rememberRelayOperationLock) {
-  async function handleDeleteMessage(message) {
+export function useMessageActions(app, rememberRelayOperationLock, { onDeleteMessageConfirmed } = {}) {
+  const handleDeleteMessage = async (message) => {
     if (!message?.id) {
       return;
     }
@@ -17,6 +17,7 @@ export function useMessageActions(app, rememberRelayOperationLock) {
     app.setMessages((current) => current.filter((item) => String(item.id) !== messageId));
 
     if (!sessionId || isDraftSession({ id: sessionId })) {
+      onDeleteMessageConfirmed?.(removedMessage);
       return;
     }
 
@@ -25,6 +26,7 @@ export function useMessageActions(app, rememberRelayOperationLock) {
         `/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}`,
         { method: 'DELETE' }
       );
+      onDeleteMessageConfirmed?.(removedMessage);
     } catch (error) {
       app.setMessages((current) => {
         if (current.some((item) => String(item.id) === messageId)) {
@@ -37,9 +39,9 @@ export function useMessageActions(app, rememberRelayOperationLock) {
       });
       window.alert(`删除失败：${error.message}`);
     }
-  }
+  };
 
-  async function handleUploadFiles(files) {
+  const handleUploadFiles = async (files) => {
     app.setUploading(true);
     try {
       for (const file of files) {
@@ -58,18 +60,22 @@ export function useMessageActions(app, rememberRelayOperationLock) {
         {
           id: `upload-error-${Date.now()}`,
           role: 'activity',
+          status: 'failed',
+          label: '上传失败',
+          detail: error.message,
           content: error.message,
+          transient: true,
           timestamp: new Date().toISOString()
         }
       ]);
     } finally {
       app.setUploading(false);
     }
-  }
+  };
 
-  function handleRemoveAttachment(id) {
+  const handleRemoveAttachment = (id) => {
     app.setAttachments((current) => current.filter((attachment) => attachment.id !== id));
-  }
+  };
 
   return {
     handleDeleteMessage,

@@ -127,7 +127,10 @@ export function createRealtimeHandoffController({ provider, sendClient, sendUpst
     handoff.pendingTranscripts = null;
     handoff.text = '';
     sendClient({ type: 'voice.handoff.summarizing', count: normalized.length });
-    sendUpstream(realtimeHandoffResponseCreatePayload(provider, normalized));
+    if (sendUpstream(realtimeHandoffResponseCreatePayload(provider, normalized)) === false) {
+      clearHandoff();
+      return;
+    }
     setResponseActive(true);
   };
 
@@ -141,7 +144,9 @@ export function createRealtimeHandoffController({ provider, sendClient, sendUpst
     handoff.text = '';
     sendClient({ type: 'voice.handoff.summarizing', count: normalized.length });
     if (getResponseActive()) {
-      sendUpstream({ type: 'response.cancel' });
+      if (sendUpstream({ type: 'response.cancel' }) === false) {
+        clearHandoff();
+      }
       return;
     }
     begin(normalized);

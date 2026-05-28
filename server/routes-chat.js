@@ -44,7 +44,13 @@ async function sendChat(req, res) {
     return;
   }
 
-  const attachments = normalizeAttachments(body.attachments);
+  let attachments = [];
+  try {
+    attachments = normalizeAttachments(body.attachments);
+  } catch (error) {
+    sendJson(res, error.statusCode || 400, { error: error.message || 'invalid_attachment' });
+    return;
+  }
   const message = String(body.message || '').trim();
   if (!message && !attachments.length) {
     sendJson(res, 400, { error: 'message or attachments are required' });
@@ -63,7 +69,7 @@ async function sendChat(req, res) {
     hadAssistantText: false,
     startedAt: new Date().toISOString()
   });
-  broadcastUserMessage(project.id, context.conversationSessionId, context.displayMessage);
+  broadcastUserMessage(project.id, context.conversationSessionId, context.displayMessage, context.turnId);
 
   if (context.imagePrompt) {
     await startImageTurn(res, context);
@@ -104,16 +110,19 @@ function buildChatContext({ body, project, attachments, message }) {
   };
 }
 
-function broadcastUserMessage(projectId, sessionId, content) {
+function broadcastUserMessage(projectId, sessionId, content, turnId) {
   broadcast({
     type: 'user-message',
     sessionId,
     projectId,
+    turnId,
     message: {
-      id: `local-${Date.now()}`,
+      id: `user-${turnId || Date.now()}`,
       role: 'user',
       content,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      sessionId,
+      turnId
     }
   });
 }

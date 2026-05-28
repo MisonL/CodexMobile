@@ -1,22 +1,49 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { apiFetch, clearToken } from '../api.js';
-import { authenticatedFromStatus, connectionStateFromStatus } from '../relay-status.js';
+import { canUseAppShellFromStatus, connectionStateFromStatus } from '../relay-status.js';
 import { createDraftSession, isDraftSession, upsertSessionInProject } from '../app-core-utils.js';
 
+function blurActiveElement() {
+  if (typeof document.activeElement?.blur === 'function') {
+    document.activeElement.blur();
+  }
+}
+
 export function useProjectController(app, runRegistry) {
+  const sessionLoadIdRef = useRef(0);
+
   const loadStatus = useCallback(async () => {
     const data = await apiFetch('/api/status');
     app.setStatus(data);
-    app.setAuthenticated(authenticatedFromStatus(data));
+    app.setAuthenticated(canUseAppShellFromStatus(data));
     app.setConnectionState(connectionStateFromStatus(data));
     runRegistry.syncActiveRunsFromStatus(data);
     return data;
   }, [app, runRegistry]);
 
+  const clearSelectedMessages = () => {
+    sessionLoadIdRef.current += 1;
+    app.setMessages([]);
+  };
+
+  const loadSessionMessages = async (session) => {
+    if (!session?.id) {
+      clearSelectedMessages();
+      return false;
+    }
+    const loadId = ++sessionLoadIdRef.current;
+    const data = await apiFetch(`/api/sessions/${encodeURIComponent(session.id)}/messages?limit=120`);
+    if (sessionLoadIdRef.current !== loadId) {
+      return false;
+    }
+    app.setMessages(data.messages || []);
+    return true;
+  };
+
   const loadSessions = useCallback(async (project, chooseLatest = true) => {
     if (!project) {
       app.setSelectedSession(null);
-      app.setMessages([]);
+      clearSelectedMessages();
       return;
     }
     app.setLoadingProjectId(project.id);
@@ -28,14 +55,13 @@ export function useProjectController(app, runRegistry) {
         const next = nextSessions[0] || null;
         app.setSelectedSession(next);
         if (next) {
-          const messageData = await apiFetch(`/api/sessions/${encodeURIComponent(next.id)}/messages?limit=120`);
-          app.setMessages(messageData.messages || []);
+          await loadSessionMessages(next);
         } else {
-          app.setMessages([]);
+          clearSelectedMessages();
         }
       } else {
         app.setSelectedSession(null);
-        app.setMessages([]);
+        clearSelectedMessages();
       }
     } finally {
       app.setLoadingProjectId((current) => (current === project.id ? null : current));
@@ -61,13 +87,18 @@ export function useProjectController(app, runRegistry) {
   const bootstrap = useCallback(async () => {
     try {
       const currentStatus = await loadStatus();
-      if (authenticatedFromStatus(currentStatus)) {
+      if (canUseAppShellFromStatus(currentStatus)) {
         await loadProjects();
         app.setSyncing(true);
         apiFetch('/api/sync', { method: 'POST' })
           .then(async () => {
             await loadStatus();
-            await loadProjects();
+            const project = app.selectedProjectRef.current;
+            if (project?.id) {
+              await refreshProjectSessions(project);
+            } else {
+              await loadProjects();
+            }
           })
           .catch(() => null)
           .finally(() => app.setSyncing(false));
@@ -80,7 +111,7 @@ export function useProjectController(app, runRegistry) {
     }
   }, [app, loadProjects, loadStatus]);
 
-  async function handleSync() {
+  const handleSync = async () => {
     app.setSyncing(true);
     try {
       await apiFetch('/api/sync', { method: 'POST' });
@@ -89,9 +120,9 @@ export function useProjectController(app, runRegistry) {
     } finally {
       app.setSyncing(false);
     }
-  }
+  };
 
-  async function handleToggleProject(project) {
+  const handleToggleProject = async (project) => {
     const isExpanded = Boolean(app.expandedProjectIds[project.id]);
     if (isExpanded) {
       app.setExpandedProjectIds((current) => {
@@ -107,26 +138,31 @@ export function useProjectController(app, runRegistry) {
     app.setSelectedProject(project);
     if (projectChanged) {
       app.setSelectedSession(null);
-      app.setMessages([]);
+      clearSelectedMessages();
     }
     if (!app.sessionsByProject[project.id]) {
       await loadSessions(project, false);
     }
-  }
+  };
 
-  async function handleSelectSession(session) {
+  const handleSelectSession = async (session) => {
+    blurActiveElement();
     app.setSelectedSession(session);
     if (isDraftSession(session)) {
-      app.setMessages([]);
+      clearSelectedMessages();
       app.setDrawerOpen(false);
       return;
     }
-    const data = await apiFetch(`/api/sessions/${encodeURIComponent(session.id)}/messages?limit=120`);
-    app.setMessages(data.messages || []);
-    app.setDrawerOpen(false);
-  }
+    try {
+      await loadSessionMessages(session);
+    } catch (error) {
+      console.warn(`[project] failed to load session messages session=${session.id}:`, error.message || error);
+    } finally {
+      app.setDrawerOpen(false);
+    }
+  };
 
-  async function refreshProjectSessions(project) {
+  const refreshProjectSessions = async (project) => {
     if (!project?.id) {
       return;
     }
@@ -136,14 +172,24 @@ export function useProjectController(app, runRegistry) {
     ]);
     const nextProjects = projectData.projects || [];
     app.setProjects(nextProjects);
-    app.setSessionsByProject((current) => ({ ...current, [project.id]: sessionData.sessions || [] }));
-    const nextSelectedProject = nextProjects.find((item) => item.id === app.selectedProjectRef.current?.id);
+    const nextSessions = sessionData.sessions || [];
+    app.setSessionsByProject((current) => ({ ...current, [project.id]: nextSessions }));
+    const currentProjectId = app.selectedProjectRef.current?.id || app.selectedProject?.id;
+    if (currentProjectId && currentProjectId !== project.id) {
+      return;
+    }
+    const nextSelectedProject = nextProjects.find((item) => item.id === currentProjectId);
     if (nextSelectedProject) {
       app.setSelectedProject(nextSelectedProject);
     }
-  }
+    if (!app.selectedSessionRef.current && nextSessions[0]) {
+      const nextSession = nextSessions[0];
+      app.setSelectedSession(nextSession);
+      await loadSessionMessages(nextSession);
+    }
+  };
 
-  async function handleRenameSession(project, session) {
+  const handleRenameSession = async (project, session) => {
     if (!project?.id || !session?.id) {
       return;
     }
@@ -177,9 +223,9 @@ export function useProjectController(app, runRegistry) {
     } catch (error) {
       window.alert(`重命名失败：${error.message}`);
     }
-  }
+  };
 
-  async function handleDeleteSession(project, session) {
+  const handleDeleteSession = async (project, session) => {
     if (!project?.id || !session?.id) {
       return;
     }
@@ -195,7 +241,7 @@ export function useProjectController(app, runRegistry) {
       }));
       if (app.selectedSessionRef.current?.id === session.id) {
         app.setSelectedSession(null);
-        app.setMessages([]);
+        clearSelectedMessages();
         app.setAttachments([]);
         app.setInput('');
       }
@@ -216,22 +262,23 @@ export function useProjectController(app, runRegistry) {
         message.toLowerCase().includes('running') ? '线程正在运行，稍后再删除。' : `删除失败：${message}`
       );
     }
-  }
+  };
 
-  function handleNewConversation() {
+  const handleNewConversation = () => {
     const project = app.selectedProject || app.projects[0];
     if (!project) {
       return;
     }
+    blurActiveElement();
     const draft = createDraftSession(project);
     app.setSelectedProject(project);
     app.setSelectedSession(draft);
     app.setExpandedProjectIds((current) => ({ ...current, [project.id]: true }));
     app.setSessionsByProject((current) => upsertSessionInProject(current, project.id, draft));
-    app.setMessages([]);
+    clearSelectedMessages();
     app.setAttachments([]);
     app.setDrawerOpen(false);
-  }
+  };
 
   return {
     loadStatus,

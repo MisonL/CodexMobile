@@ -77,16 +77,29 @@
 }
 
 @media (max-width: 480px) {
+  .composer-controls {
+    gap: 4px;
+    padding-right: 4px;
+    padding-left: 4px;
+  }
+
+  .control-left,
+  .control-right {
+    gap: 4px;
+  }
+
   .permission-pill {
-    max-width: 104px;
+    max-width: 82px;
   }
 
   .model-select {
-    max-width: 104px;
+    max-width: 78px;
   }
 
   .dialog-button {
-    width: 32px;
+    width: 44px;
+    min-width: 44px;
+    flex-basis: 44px;
     padding: 0;
     border-radius: 50%;
   }
@@ -98,11 +111,11 @@
 
 @media (max-width: 380px) {
   .permission-pill {
-    max-width: 92px;
+    max-width: 64px;
     overflow: hidden;
   }
 
   .model-select {
-    max-width: 86px;
+    max-width: 66px;
   }
 }

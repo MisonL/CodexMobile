@@ -42,12 +42,22 @@ export function authenticatedFromStatus(data) {
   return Boolean(data?.authenticated ?? data?.auth?.authenticated);
 }
 
+export function canUseAppShellFromStatus(data) {
+  return authenticatedFromStatus(data) || Boolean(data?.mode === 'relay' && data?.authValidationDeferred);
+}
+
 export function connectionStateFromStatus(nextStatus) {
   if (nextStatus?.mode !== 'relay') {
     return nextStatus?.connected ? 'connected' : 'disconnected';
   }
   if (nextStatus.relayState && CONNECTION_STATUS[nextStatus.relayState]) {
+    if (nextStatus.authValidationDeferred && nextStatus.relayState === 'pairing_required') {
+      return nextStatus.macConnected ? 'mac_local_offline' : 'mac_offline';
+    }
     return nextStatus.relayState;
+  }
+  if (nextStatus.authValidationDeferred) {
+    return nextStatus.macConnected ? 'mac_local_offline' : 'mac_offline';
   }
   if (!authenticatedFromStatus(nextStatus) || nextStatus.requiresPairing) {
     return 'pairing_required';

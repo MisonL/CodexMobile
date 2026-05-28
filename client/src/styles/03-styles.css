@@ -70,7 +70,7 @@
 
 .control-row,
 .settings-entry {
-  min-height: 42px;
+  min-height: 44px;
   padding: 4px 8px;
   border-radius: 8px;
   background: #f5f7f4;
@@ -87,7 +87,7 @@
 
 .sync-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 70px 32px;
+  grid-template-columns: minmax(0, 1fr) 74px 44px;
   align-items: center;
   gap: 0;
   padding: 4px;
@@ -109,9 +109,9 @@
 
 .sync-row .sync-spacer {
   display: block;
-  width: 30px;
-  min-width: 30px;
-  height: 30px;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
 }
 
 .settings-entry {
@@ -174,7 +174,7 @@
   gap: 6px;
   justify-content: center;
   min-width: 56px;
-  height: 30px;
+  min-height: 44px;
   margin-top: 0;
   padding: 0 10px;
   border: 0;
@@ -199,9 +199,9 @@
 
 .quota-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 70px 32px;
+  grid-template-columns: minmax(0, 1fr) 74px 44px;
   align-items: center;
-  min-height: 42px;
+  min-height: 52px;
   padding: 4px;
   border-radius: 8px;
   background: #f5f7f4;
@@ -225,7 +225,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 34px;
+  min-height: 44px;
   padding: 0 8px;
   color: var(--text);
   background: transparent;
@@ -254,7 +254,7 @@
 
 .quota-refresh {
   width: 70px;
-  height: 30px;
+  min-height: 44px;
   min-width: 70px;
   padding: 0 9px;
   border-radius: 8px;
@@ -277,8 +277,8 @@
 .quota-toggle {
   display: inline-grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 44px;
+  min-height: 44px;
   color: #818993;
   background: transparent;
 }

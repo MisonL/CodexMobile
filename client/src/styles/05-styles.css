@@ -50,10 +50,10 @@
   display: inline-flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 14px;
+  gap: 6px;
   max-width: 100%;
   margin-top: 4px;
-  padding: 0 3px;
+  padding: 0;
   color: #7b838f;
   font-size: 12px;
   line-height: 16px;
@@ -62,9 +62,11 @@
 .message-action {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
-  min-height: 28px;
-  padding: 0;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 6px;
   border: 0;
   color: inherit;
   background: transparent;
@@ -74,6 +76,10 @@
 .message-action:focus-visible,
 .message-action:active {
   color: #4b5563;
+}
+
+.message-action.is-speaking {
+  color: var(--accent);
 }
 
 .message-action.is-delete:hover,
@@ -114,6 +120,15 @@
   white-space: nowrap;
   font-size: 13px;
   line-height: 18px;
+}
+
+.activity-detail {
+  margin-top: 6px;
+  color: #8f3d36;
+  font-size: 12px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .activity-steps {
@@ -279,4 +294,6 @@
   padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px calc(env(safe-area-inset-bottom, 0px) + 12px);
   background: rgba(8, 10, 13, 0.94);
   backdrop-filter: blur(10px);
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y pinch-zoom;
 }

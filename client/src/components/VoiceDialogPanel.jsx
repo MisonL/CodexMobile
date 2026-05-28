@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Headphones, Loader2, Mic, Volume2, X } from 'lucide-react';
 import { voiceDialogStatusLabel } from '../app-voice-utils.js';
 
@@ -16,6 +17,14 @@ export function VoiceDialogPanel({
   onStop,
   onClose
 }) {
+  const closeButtonRef = useRef(null);
+
+  useEffect(() => {
+    if (open) {
+      closeButtonRef.current?.focus();
+    }
+  }, [open]);
+
   if (!open) {
     return null;
   }
@@ -37,7 +46,7 @@ export function VoiceDialogPanel({
             <Headphones size={17} />
             语音对话
           </span>
-          <button type="button" onClick={onClose} aria-label="关闭语音对话">
+          <button ref={closeButtonRef} type="button" onClick={onClose} aria-label="关闭语音对话">
             <X size={18} />
           </button>
         </div>

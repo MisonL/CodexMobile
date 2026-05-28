@@ -1,37 +1,11 @@
-import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { CODEX_SESSION_INDEX } from './codex-config.js';
+import { displayNameFor, normalizeComparablePath, projectIdFor } from './codex-data-projects.js';
 
-export function normalizeComparablePath(value) {
-  if (!value || typeof value !== 'string') {
-    return '';
-  }
-  const normalized = path.resolve(value);
-  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
-}
-
-export function projectIdFor(projectPath) {
-  return crypto.createHash('sha1').update(normalizeComparablePath(projectPath)).digest('hex').slice(0, 16);
-}
-
-export function displayNameFor(projectPath) {
-  const parsed = path.parse(projectPath);
-  return path.basename(projectPath) || parsed.root || projectPath;
-}
-
-export function toPublicProject(entry) {
-  return {
-    id: entry.id,
-    name: entry.name,
-    path: entry.path,
-    trusted: entry.trusted,
-    updatedAt: entry.updatedAt,
-    sessionCount: entry.sessionCount || 0
-  };
-}
+export { normalizeComparablePath, projectIdFor, toPublicProject } from './codex-data-projects.js';
 
 export async function walkJsonlFiles(dir) {
   const files = [];
@@ -183,45 +157,26 @@ export function extractContent(content) {
     .join('\n');
 }
 
-export async function parseSessionMetadata(filePath, sessionIndex, mobileSessionIndex) {
-  const stream = fsSync.createReadStream(filePath, { encoding: 'utf8' });
-  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
-
-  let meta = null;
-  let lastTimestamp = null;
-  let lastUserMessage = '';
-  let messageCount = 0;
-
-  for await (const line of rl) {
-    if (!line.trim()) {
-      continue;
-    }
-    try {
-      const entry = JSON.parse(line);
-      if (entry.timestamp) {
-        lastTimestamp = entry.timestamp;
-      }
-      if (entry.type === 'session_meta' && entry.payload?.id) {
-        meta = {
-          id: entry.payload.id,
-          cwd: entry.payload.cwd,
-          model: entry.payload.model || null,
-          provider: entry.payload.model_provider || null,
-          timestamp: entry.timestamp || entry.payload.timestamp || null
-        };
-      }
-      if (entry.type === 'event_msg' && isVisibleUserMessage(entry.payload)) {
-        messageCount += 1;
-        lastUserMessage = sanitizeVisibleUserMessage(entry.payload.message);
-      }
-      if (entry.type === 'response_item' && entry.payload?.type === 'message' && entry.payload.role === 'assistant') {
-        messageCount += 1;
-      }
-    } catch {
-      // Skip malformed or partial rows.
-    }
+function sessionIdentityFromPayload(payload) {
+  if (!payload?.id || !payload?.cwd) {
+    return null;
   }
+  return {
+    id: payload.id,
+    cwd: payload.cwd,
+    projectId: projectIdFor(payload.cwd)
+  };
+}
 
+function buildSessionMetadata({
+  filePath,
+  meta,
+  sessionIndex,
+  mobileSessionIndex,
+  lastTimestamp,
+  lastUserMessage,
+  messageCount
+}) {
   if (!meta?.id || !meta.cwd) {
     return null;
   }
@@ -248,6 +203,100 @@ export async function parseSessionMetadata(filePath, sessionIndex, mobileSession
     source: 'codex-app',
     filePath
   };
+}
+
+async function readSessionMetadata(options) {
+  const { filePath, sessionIndex, mobileSessionIndex, includeIdentity } = options;
+  const stream = fsSync.createReadStream(filePath, { encoding: 'utf8' });
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+
+  let meta = null;
+  let lastTimestamp = null;
+  let lastUserMessage = '';
+  let messageCount = 0;
+
+  for await (const line of rl) {
+    if (!line.trim()) {
+      continue;
+    }
+    try {
+      const entry = JSON.parse(line);
+      if (entry.timestamp) {
+        lastTimestamp = entry.timestamp;
+      }
+      if (entry.type === 'session_meta' && entry.payload?.id) {
+        const identity = sessionIdentityFromPayload(entry.payload);
+        if (identity && includeIdentity && !includeIdentity(identity)) {
+          rl.close();
+          stream.destroy();
+          return null;
+        }
+        meta = {
+          id: entry.payload.id,
+          cwd: entry.payload.cwd,
+          model: entry.payload.model || null,
+          provider: entry.payload.model_provider || null,
+          timestamp: entry.timestamp || entry.payload.timestamp || null
+        };
+      }
+      if (entry.type === 'event_msg' && isVisibleUserMessage(entry.payload)) {
+        messageCount += 1;
+        lastUserMessage = sanitizeVisibleUserMessage(entry.payload.message);
+      }
+      if (entry.type === 'response_item' && entry.payload?.type === 'message' && entry.payload.role === 'assistant') {
+        messageCount += 1;
+      }
+    } catch {
+      // Skip malformed or partial rows.
+    }
+  }
+
+  return buildSessionMetadata({
+    filePath,
+    meta,
+    sessionIndex,
+    mobileSessionIndex,
+    lastTimestamp,
+    lastUserMessage,
+    messageCount
+  });
+}
+
+export async function parseSessionMetadata(filePath, sessionIndex, mobileSessionIndex) {
+  return readSessionMetadata({ filePath, sessionIndex, mobileSessionIndex });
+}
+
+export async function parseFilteredSessionMetadata(options) {
+  return readSessionMetadata(options);
+}
+
+export async function parseSessionIdentity(filePath) {
+  const stream = fsSync.createReadStream(filePath, { encoding: 'utf8' });
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+
+  try {
+    for await (const line of rl) {
+      if (!line.trim()) {
+        continue;
+      }
+      try {
+        const entry = JSON.parse(line);
+        const identity = entry.type === 'session_meta' ? sessionIdentityFromPayload(entry.payload) : null;
+        if (identity) {
+          rl.close();
+          stream.destroy();
+          return identity;
+        }
+      } catch {
+        // Skip malformed or partial rows.
+      }
+    }
+  } finally {
+    rl.close();
+    stream.destroy();
+  }
+
+  return null;
 }
 
 export function upsertProject(projectMap, projectPath, trustLevel = null, label = null) {

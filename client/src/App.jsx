@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useRef } from 'react';
 import { DEFAULT_STATUS, relayDisabledReason } from './relay-status.js';
 import { PairingScreen } from './PairingScreen.jsx';
 import { TopBar } from './TopBar.jsx';
@@ -11,6 +11,7 @@ import { useMessageActions } from './hooks/useMessageActions.js';
 import { useProjectController } from './hooks/useProjectController.js';
 import { useRelayOperationLocks } from './hooks/useRelayOperationLocks.js';
 import { useRunRegistry } from './hooks/useRunRegistry.js';
+import { useMessageSpeech } from './hooks/useMessageSpeech.js';
 import { useTurnPolling } from './hooks/useTurnPolling.js';
 import { useTurnRefresh } from './hooks/useTurnRefresh.js';
 import { useViewportMetrics } from './hooks/useViewportMetrics.js';
@@ -23,6 +24,8 @@ import { Composer } from './components/Composer.jsx';
 
 export default function App() {
   const app = useAppState();
+  const menuButtonRef = useRef(null);
+  const wasDrawerOpenRef = useRef(false);
   const {
     status, authenticated, drawerOpen, setDrawerOpen, projects, selectedProject,
     expandedProjectIds, sessionsByProject, loadingProjectId, selectedSession,
@@ -50,9 +53,21 @@ export default function App() {
     loadStatus, bootstrap, handleSync, handleToggleProject,
     handleSelectSession, handleRenameSession, handleDeleteSession, handleNewConversation
   } = projectController;
+  const messageSpeech = useMessageSpeech(selectedSession?.id);
   const { handleDeleteMessage, handleUploadFiles, handleRemoveAttachment } = useMessageActions(
     app,
-    rememberRelayOperationLock
+    rememberRelayOperationLock,
+    {
+      onDeleteMessageConfirmed: (message) => {
+        const messageId = String(message?.id || '');
+        if (
+          messageId &&
+          (messageSpeech.speakingMessageId === messageId || messageSpeech.speechLoadingMessageId === messageId)
+        ) {
+          messageSpeech.stopSpeech();
+        }
+      }
+    }
   );
   const {
     handleConnectDocs, handleDisconnectDocs, handleRefreshDocs,
@@ -67,7 +82,8 @@ export default function App() {
     runningById,
     rememberRelayOperationLock,
     onVoiceSubmit: handleVoiceSubmit,
-    submitCodexMessage
+    submitCodexMessage,
+    onStopMessageSpeech: messageSpeech.stopSpeech
   });
   useAppWebSocket(app, runRegistry, turnRefresh);
 
@@ -87,6 +103,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(THEME_KEY, theme);
     document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute('content', theme === 'dark' ? '#171717' : '#f7f7f4');
   }, [theme]);
 
   useEffect(() => {
@@ -108,23 +128,49 @@ export default function App() {
     }
   }, [selectedReasoningEffort, status.reasoningEffort]);
 
-  const shellClass = useMemo(() => (drawerOpen ? 'app-shell drawer-active' : 'app-shell'), [drawerOpen]);
-  const composerDisabledReason = relayDisabledReason(connectionState);
+  const projectDisabledReason = selectedProject
+    ? ''
+    : syncing || !projects.length ? '正在同步项目...' : '未找到可用项目';
+  const composerDisabledReason = relayDisabledReason(connectionState) || projectDisabledReason;
+  const modalBackgroundInert = docsOpen || voiceDialog.open || Boolean(previewImage);
+  const appContentInert = drawerOpen || modalBackgroundInert;
+
+  useEffect(() => {
+    let focusFrame = null;
+    if (wasDrawerOpenRef.current && !drawerOpen && !modalBackgroundInert) {
+      focusFrame = window.requestAnimationFrame(() => {
+        menuButtonRef.current?.focus();
+      });
+    }
+    wasDrawerOpenRef.current = drawerOpen;
+    return () => {
+      if (focusFrame !== null) {
+        window.cancelAnimationFrame(focusFrame);
+      }
+    };
+  }, [drawerOpen, modalBackgroundInert]);
+
   if (!authenticated) {
     return <PairingScreen onPaired={bootstrap} />;
   }
 
+  const closeDrawer = () => {
+    setDrawerOpen(false);
+  };
+
   return (
-    <div className={shellClass}>
+    <div className="app-shell">
       <TopBar
         selectedProject={selectedProject}
         connectionState={connectionState}
         onMenu={() => setDrawerOpen(true)}
         onOpenDocs={() => setDocsOpen(true)}
+        backgroundInert={appContentInert}
+        menuButtonRef={menuButtonRef}
       />
       <Drawer
         open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
+        onClose={closeDrawer}
         projects={projects}
         selectedProject={selectedProject}
         selectedSession={selectedSession}
@@ -140,6 +186,7 @@ export default function App() {
         syncing={syncing}
         theme={theme}
         setTheme={setTheme}
+        backgroundInert={modalBackgroundInert}
       />
       <DocsPanel
         open={docsOpen}
@@ -159,6 +206,10 @@ export default function App() {
         running={running}
         onPreviewImage={setPreviewImage}
         onDeleteMessage={handleDeleteMessage}
+        onSpeakMessage={messageSpeech.speakMessage}
+        speakingMessageId={messageSpeech.speakingMessageId}
+        speechLoadingMessageId={messageSpeech.speechLoadingMessageId}
+        backgroundInert={appContentInert}
       />
       <VoiceDialogPanel
         open={voiceDialog.open}
@@ -199,6 +250,7 @@ export default function App() {
         disabled={Boolean(composerDisabledReason)}
         disabledReason={composerDisabledReason}
         actionDisabledReasons={actionDisabledReasons}
+        backgroundInert={appContentInert}
       />
       <ImagePreviewModal image={previewImage} onClose={() => setPreviewImage(null)} />
     </div>

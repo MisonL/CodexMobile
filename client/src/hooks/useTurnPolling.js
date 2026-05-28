@@ -1,8 +1,21 @@
+import { useEffect, useRef } from 'react';
 import { apiFetch } from '../api.js';
-import { hasVisibleAssistantForTurn, upsertSessionInProject } from '../app-core-utils.js';
-import { upsertStatusMessage } from '../app-message-state.js';
+import { hasAssistantResultForTurn, upsertSessionInProject } from '../app-core-utils.js';
+import { upsertAssistantMessage, upsertStatusMessage } from '../app-message-state.js';
+
+const TURN_POLL_INTERVAL_MS = 1400;
+const TURN_POLL_TIMEOUT_MS = 30 * 60 * 1000;
 
 export function useTurnPolling(app, runRegistry, turnRefresh) {
+  const stoppedRef = useRef(false);
+
+  useEffect(() => {
+    stoppedRef.current = false;
+    return () => {
+      stoppedRef.current = true;
+    };
+  }, []);
+
   function turnMatchesCurrentSelection(turnId, optimisticSessionId, realSessionId, previousSessionId) {
     const current = app.selectedSessionRef.current;
     if (!current) {
@@ -61,7 +74,14 @@ export function useTurnPolling(app, runRegistry, turnRefresh) {
     return realSessionId;
   }
 
-  async function loadTurnMessages(realSessionId, turnId, optimisticSessionId, previousSessionId) {
+  const loadTurnMessages = async ({
+    realSessionId,
+    turnId,
+    messageId,
+    optimisticSessionId,
+    previousSessionId,
+    hadAssistantText = false
+  }) => {
     if (!realSessionId) {
       return false;
     }
@@ -76,22 +96,34 @@ export function useTurnPolling(app, runRegistry, turnRefresh) {
       return false;
     }
     const data = await apiFetch(`/api/sessions/${encodeURIComponent(realSessionId)}/messages?limit=120`);
-    if (data.messages?.length && hasVisibleAssistantForTurn(data.messages, { turnId })) {
+    if (
+      data.messages?.length &&
+      hasAssistantResultForTurn(data.messages, {
+        turnId,
+        messageId,
+        hadAssistantText,
+        status: 'completed',
+        allowLatestAssistantFallback: !messageId
+      })
+    ) {
       app.setMessages(data.messages);
       return true;
     }
     return false;
-  }
+  };
 
-  async function pollTurnUntilComplete({ turnId, optimisticSessionId, projectId, previousSessionId }) {
-    if (!turnId || app.activePollsRef.current.has(turnId)) {
+  const pollTurnUntilComplete = async ({ turnId, optimisticSessionId, projectId, previousSessionId }) => {
+    if (stoppedRef.current || !turnId || app.activePollsRef.current.has(turnId)) {
       return;
     }
     app.activePollsRef.current.add(turnId);
     const startedAt = Date.now();
     try {
-      while (Date.now() - startedAt < 1800000) {
-        await new Promise((resolve) => window.setTimeout(resolve, 1400));
+      while (Date.now() - startedAt < TURN_POLL_TIMEOUT_MS) {
+        await new Promise((resolve) => window.setTimeout(resolve, TURN_POLL_INTERVAL_MS));
+        if (stoppedRef.current) {
+          break;
+        }
         let turn = null;
         try {
           const result = await apiFetch(`/api/chat/turns/${encodeURIComponent(turnId)}`);
@@ -101,6 +133,9 @@ export function useTurnPolling(app, runRegistry, turnRefresh) {
         }
         if (!turn) {
           continue;
+        }
+        if (stoppedRef.current) {
+          break;
         }
 
         const realSessionId = applyTurnSession(turn, optimisticSessionId, projectId, previousSessionId);
@@ -134,12 +169,37 @@ export function useTurnPolling(app, runRegistry, turnRefresh) {
         if (turn.status === 'completed') {
           const terminalPayload = { sessionId: realSessionId || optimisticSessionId, turnId, previousSessionId };
           turnRefresh.markTurnCompleted({ ...terminalPayload, detail: turn.detail || '' });
-          const loaded = await loadTurnMessages(realSessionId, turnId, optimisticSessionId, previousSessionId);
+          const loaded = await loadTurnMessages({
+            realSessionId,
+            turnId,
+            messageId: turn.messageId || null,
+            optimisticSessionId,
+            previousSessionId,
+            hadAssistantText: turn.hadAssistantText
+          });
           if (loaded) {
+            runRegistry.clearRun(terminalPayload);
+          } else if (turn.assistantPreview) {
+            app.setMessages((current) =>
+              upsertAssistantMessage(current, {
+                ...terminalPayload,
+                preview: true,
+                content: turn.assistantPreview
+              })
+            );
+            turnRefresh.scheduleTurnRefresh({
+              ...terminalPayload,
+              messageId: turn.messageId || null,
+              hadAssistantText: true,
+              allowLatestAssistantFallback: !turn.messageId,
+              usage: turn.usage || null
+            });
             runRegistry.clearRun(terminalPayload);
           } else {
             turnRefresh.scheduleTurnRefresh({
               ...terminalPayload,
+              messageId: turn.messageId || null,
+              allowLatestAssistantFallback: !turn.messageId,
               hadAssistantText: turn.hadAssistantText || Boolean(turn.assistantPreview),
               usage: turn.usage || null
             });
@@ -150,7 +210,7 @@ export function useTurnPolling(app, runRegistry, turnRefresh) {
     } finally {
       app.activePollsRef.current.delete(turnId);
     }
-  }
+  };
 
   return {
     pollTurnUntilComplete

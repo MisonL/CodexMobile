@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -16,6 +17,8 @@ import {
   requestSpeech,
   safeProviderMessage,
   speechMimeType,
+  providerLabel,
+  truthyEnv,
   voiceSpeechConfig
 } from './voice-speaker-config.js';
 
@@ -90,11 +93,15 @@ export function runWindowsSapi({ text, outputPath }) {
   });
 }
 
-export async function synthesizeLocalSpeech(text) {
-  const outputPath = path.join(
+export function createLocalSpeechOutputPath() {
+  return path.join(
     os.tmpdir(),
     `codexmobile-speech-${process.pid}-${Date.now()}-${randomUUID()}.wav`
   );
+}
+
+export async function synthesizeLocalSpeech(text) {
+  const outputPath = createLocalSpeechOutputPath();
 
   try {
     await runWindowsSapi({ text, outputPath });

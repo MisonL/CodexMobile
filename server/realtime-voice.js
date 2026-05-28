@@ -18,6 +18,105 @@ import { createRealtimeHandoffController } from './realtime-voice-handoff.js';
 
 export { publicVoiceRealtimeStatus };
 
+const REALTIME_PENDING_MAX_MESSAGES = 128;
+const REALTIME_PENDING_MAX_BYTES = 2 * 1024 * 1024;
+const REALTIME_INPUT_AUDIO_MAX_CHARS = 512 * 1024;
+const REALTIME_CLIENT_FRAME_MAX_BYTES = REALTIME_PENDING_MAX_BYTES;
+
+export function realtimeClientFrameByteLength(data) {
+  if (Buffer.isBuffer(data)) {
+    return data.length;
+  }
+  if (typeof data === 'string') {
+    return Buffer.byteLength(data);
+  }
+  if (data instanceof ArrayBuffer) {
+    return data.byteLength;
+  }
+  if (ArrayBuffer.isView(data)) {
+    return data.byteLength;
+  }
+  if (Array.isArray(data)) {
+    return data.reduce((total, item) => total + realtimeClientFrameByteLength(item), 0);
+  }
+  return Buffer.byteLength(String(data ?? ''));
+}
+
+function realtimeClientFrameText(data) {
+  if (Buffer.isBuffer(data)) {
+    return data.toString('utf8');
+  }
+  if (typeof data === 'string') {
+    return data;
+  }
+  if (data instanceof ArrayBuffer) {
+    return Buffer.from(data).toString('utf8');
+  }
+  if (ArrayBuffer.isView(data)) {
+    return Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('utf8');
+  }
+  if (Array.isArray(data)) {
+    return Buffer.concat(data.map((item) => Buffer.from(realtimeClientFrameText(item)))).toString('utf8');
+  }
+  return String(data ?? '');
+}
+
+export function createPendingRealtimeQueue({
+  maxMessages = REALTIME_PENDING_MAX_MESSAGES,
+  maxBytes = REALTIME_PENDING_MAX_BYTES
+} = {}) {
+  const items = [];
+  let bytes = 0;
+  return {
+    get size() {
+      return items.length;
+    },
+    get bytes() {
+      return bytes;
+    },
+    push(value) {
+      const text = String(value || '');
+      const nextBytes = bytes + Buffer.byteLength(text);
+      if (items.length >= maxMessages || nextBytes > maxBytes) {
+        throw new Error('realtime_pending_queue_overflow');
+      }
+      items.push(text);
+      bytes = nextBytes;
+    },
+    flush(send) {
+      while (items.length) {
+        const value = items.shift();
+        bytes -= Buffer.byteLength(value);
+        send(value);
+      }
+    }
+  };
+}
+
+export function createRealtimeSender({
+  upstream,
+  pending,
+  isUpstreamReady,
+  sendClient,
+  closeBoth
+}) {
+  return (payload) => {
+    const serialized = JSON.stringify(payload);
+    if (upstream.readyState === WebSocket.OPEN && isUpstreamReady()) {
+      upstream.send(serialized);
+      return true;
+    }
+    try {
+      pending.push(serialized);
+      return true;
+    } catch (error) {
+      sendClient({ type: 'voice.realtime.error', error: error.message || 'realtime_pending_queue_overflow' });
+      closeBoth();
+      return false;
+    }
+  };
+}
+
 export function startVoiceRealtimeProxy(client, { remoteAddress = '' } = {}) {
   const apiKey = realtimeApiKey();
   const status = publicVoiceRealtimeStatus();
@@ -36,7 +135,7 @@ export function startVoiceRealtimeProxy(client, { remoteAddress = '' } = {}) {
     handshakeTimeout: REALTIME_TIMEOUT_MS,
     headers: realtimeHeaders(provider, apiKey)
   });
-  const pending = [];
+  const pending = createPendingRealtimeQueue();
   let closed = false;
   let upstreamReady = false;
   let upstreamResponseActive = false;
@@ -47,22 +146,11 @@ export function startVoiceRealtimeProxy(client, { remoteAddress = '' } = {}) {
     }
   };
 
-  const sendUpstream = (payload) => {
-    const serialized = JSON.stringify(payload);
-    if (upstream.readyState === WebSocket.OPEN && upstreamReady) {
-      upstream.send(serialized);
-      return;
-    }
-    pending.push(serialized);
-  };
-
   const flushPending = () => {
     if (upstream.readyState !== WebSocket.OPEN || !upstreamReady) {
       return;
     }
-    while (pending.length) {
-      upstream.send(pending.shift());
-    }
+    pending.flush((value) => upstream.send(value));
   };
 
   const closeBoth = () => {
@@ -81,6 +169,15 @@ export function startVoiceRealtimeProxy(client, { remoteAddress = '' } = {}) {
       // Socket may already be gone.
     }
   };
+
+  const sendUpstream = createRealtimeSender({
+    upstream,
+    pending,
+    isUpstreamReady: () => upstreamReady,
+    sendClient,
+    closeBoth
+  });
+
   const handoff = createRealtimeHandoffController({
     provider,
     sendClient,
@@ -171,14 +268,24 @@ export function startVoiceRealtimeProxy(client, { remoteAddress = '' } = {}) {
   });
 
   client.on('message', (data) => {
+    if (realtimeClientFrameByteLength(data) > REALTIME_CLIENT_FRAME_MAX_BYTES) {
+      sendClient({ type: 'voice.realtime.error', error: 'realtime_client_frame_too_large' });
+      closeBoth();
+      return;
+    }
     let payload = null;
     try {
-      payload = JSON.parse(Buffer.isBuffer(data) ? data.toString('utf8') : String(data));
+      payload = JSON.parse(realtimeClientFrameText(data));
     } catch {
       return;
     }
 
     if (payload.type === 'input_audio.append' && typeof payload.audio === 'string') {
+      if (payload.audio.length > REALTIME_INPUT_AUDIO_MAX_CHARS) {
+        sendClient({ type: 'voice.realtime.error', error: 'realtime_audio_frame_too_large' });
+        closeBoth();
+        return;
+      }
       sendUpstream({ type: 'input_audio_buffer.append', audio: payload.audio });
       return;
     }
@@ -187,9 +294,9 @@ export function startVoiceRealtimeProxy(client, { remoteAddress = '' } = {}) {
       return;
     }
     if (payload.type === 'input_audio.commit') {
-      sendUpstream({ type: 'input_audio_buffer.commit' });
-      sendUpstream(realtimeResponseCreatePayload(provider));
-      upstreamResponseActive = true;
+      if (sendUpstream({ type: 'input_audio_buffer.commit' }) && sendUpstream(realtimeResponseCreatePayload(provider))) {
+        upstreamResponseActive = true;
+      }
       return;
     }
     if (payload.type === 'response.cancel') {

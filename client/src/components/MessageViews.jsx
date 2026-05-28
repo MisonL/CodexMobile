@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Copy, Loader2, RefreshCw, ShieldCheck, Trash2, X } from 'lucide-react';
-import { copyTextToClipboard, formatTime, imageUrlWithRetry } from '../app-core-utils.js';
+import { Check, Copy, Loader2, ShieldCheck, Trash2, Volume2, X } from 'lucide-react';
+import { copyTextToClipboard, formatTime } from '../app-core-utils.js';
 import { isVisibleActivityStep } from '../app-message-state.js';
+import { GeneratedImage } from './MessageImages.jsx';
+
+export { ImagePreviewModal } from './MessageImages.jsx';
+
+const COPY_FEEDBACK_RESET_DELAY_MS = 1500;
 
 export function ActivityMessage({ message }) {
   const running = message.status === 'running' || message.status === 'queued';
@@ -9,6 +14,8 @@ export function ActivityMessage({ message }) {
   const activities = message.activities || [];
   const visibleSteps = activities.filter((activity) => isVisibleActivityStep(activity, message.status)).slice(-4);
   const headline = running ? '正在思考中' : message.label || message.content || '正在处理';
+  const failedDetail = failed ? String(message.detail || '').trim() : '';
+  const showFailedDetail = failedDetail && failedDetail !== headline && failedDetail !== '任务失败';
 
   return (
     <div className="message-row is-activity">
@@ -17,6 +24,7 @@ export function ActivityMessage({ message }) {
           {running ? <Loader2 className="spin" size={15} /> : failed ? <X size={15} /> : <Check size={15} />}
           <span>{headline}</span>
         </div>
+        {showFailedDetail ? <div className="activity-detail">{failedDetail}</div> : null}
         {visibleSteps.length ? (
           <div className="activity-steps" aria-label="任务进度">
             {visibleSteps.map((activity) => (
@@ -29,91 +37,6 @@ export function ActivityMessage({ message }) {
         ) : null}
         {message.timestamp ? <time>{formatTime(message.timestamp)}</time> : null}
       </div>
-    </div>
-  );
-}
-
-export function GeneratedImage({ part, onPreviewImage }) {
-  const [loadState, setLoadState] = useState('loading');
-  const [retryKey, setRetryKey] = useState(0);
-  const src = imageUrlWithRetry(part.url, retryKey);
-
-  function retry(event) {
-    event.stopPropagation();
-    setLoadState('loading');
-    setRetryKey(Date.now());
-  }
-
-  return (
-    <button
-      type="button"
-      className={`message-image-link ${loadState === 'failed' ? 'is-failed' : ''}`}
-      onClick={() => (loadState === 'failed' ? setRetryKey(Date.now()) : onPreviewImage(part))}
-      aria-label="预览图片"
-    >
-      <img
-        className="message-image"
-        src={src}
-        alt={part.alt}
-        loading="eager"
-        decoding="async"
-        onLoad={() => setLoadState('loaded')}
-        onError={() => setLoadState('failed')}
-      />
-      {loadState === 'failed' ? (
-        <span className="image-error">
-          图片加载失败
-          <span onClick={retry}>重试</span>
-        </span>
-      ) : null}
-    </button>
-  );
-}
-
-export function ImagePreviewModal({ image, onClose }) {
-  const [loadState, setLoadState] = useState('loading');
-  const [retryKey, setRetryKey] = useState(0);
-
-  useEffect(() => {
-    setLoadState('loading');
-    setRetryKey(0);
-  }, [image?.url]);
-
-  if (!image) {
-    return null;
-  }
-
-  const src = imageUrlWithRetry(image.url, retryKey);
-
-  return (
-    <div className="image-lightbox" role="dialog" aria-modal="true" onClick={onClose}>
-      <div className="lightbox-top">
-        <button type="button" className="lightbox-close" onClick={onClose} aria-label="关闭图片预览">
-          <X size={22} />
-        </button>
-      </div>
-      <div className="lightbox-stage" onClick={(event) => event.stopPropagation()}>
-        <img
-          src={src}
-          alt={image.alt || '生成图片'}
-          onLoad={() => setLoadState('loaded')}
-          onError={() => setLoadState('failed')}
-        />
-      </div>
-      {loadState === 'failed' ? (
-        <div className="lightbox-actions" onClick={(event) => event.stopPropagation()}>
-          <button
-            type="button"
-            onClick={() => {
-              setLoadState('loading');
-              setRetryKey(Date.now());
-            }}
-          >
-            <RefreshCw size={16} />
-            重新加载
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -207,7 +130,54 @@ export function renderInlineText(text, keyPrefix) {
   return nodes.length ? nodes : [<span key={`${keyPrefix}-text-0`}>{value}</span>];
 }
 
-export function ChatMessage({ message, onPreviewImage, onDeleteMessage }) {
+function MessageActions({
+  message,
+  onDeleteMessage,
+  onSpeakMessage,
+  speakingMessageId,
+  speechLoadingMessageId
+}) {
+  const isAssistant = message.role === 'assistant';
+  const canAct = isAssistant || message.role === 'user';
+  const messageId = String(message.id || '');
+  const speechActive = isAssistant && speakingMessageId === messageId;
+  const speechLoading = isAssistant && speechLoadingMessageId === messageId;
+  if (!canAct) {
+    return null;
+  }
+
+  return (
+    <div className="message-actions" aria-label="消息操作">
+      {isAssistant ? (
+        <SpeechActionButton
+          active={speechActive}
+          loading={speechLoading}
+          onClick={() => onSpeakMessage?.(message)}
+        />
+      ) : null}
+      <MessageCopyButton content={message.content} />
+      <button type="button" className="message-action is-delete" onClick={() => onDeleteMessage?.(message)}>
+        <Trash2 size={13} />
+        <span>删除</span>
+      </button>
+    </div>
+  );
+}
+
+function SpeechActionButton({ active, loading, onClick }) {
+  return (
+    <button
+      type="button"
+      className={`message-action ${active ? 'is-speaking' : ''}`}
+      onClick={onClick}
+    >
+      {loading ? <Loader2 className="spin" size={13} /> : <Volume2 size={13} />}
+      <span>{active || loading ? '停止' : '朗读'}</span>
+    </button>
+  );
+}
+
+function MessageCopyButton({ content }) {
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef(null);
 
@@ -217,14 +187,8 @@ export function ChatMessage({ message, onPreviewImage, onDeleteMessage }) {
     }
   }, []);
 
-  if (message.role === 'activity') {
-    return <ActivityMessage message={message} />;
-  }
-  const isUser = message.role === 'user';
-  const canAct = message.role === 'user' || message.role === 'assistant';
-
-  async function handleCopy() {
-    const copiedText = await copyTextToClipboard(message.content);
+  const handleCopy = async () => {
+    const copiedText = await copyTextToClipboard(content);
     if (!copiedText) {
       window.alert('复制失败');
       return;
@@ -233,8 +197,29 @@ export function ChatMessage({ message, onPreviewImage, onDeleteMessage }) {
     if (copiedTimerRef.current) {
       window.clearTimeout(copiedTimerRef.current);
     }
-    copiedTimerRef.current = window.setTimeout(() => setCopied(false), 1500);
+    copiedTimerRef.current = window.setTimeout(() => setCopied(false), COPY_FEEDBACK_RESET_DELAY_MS);
+  };
+
+  return (
+    <button type="button" className="message-action" onClick={handleCopy}>
+      {copied ? <Check size={13} /> : <Copy size={13} />}
+      <span>{copied ? '已复制' : '复制'}</span>
+    </button>
+  );
+}
+
+export function ChatMessage({
+  message,
+  onPreviewImage,
+  onDeleteMessage,
+  onSpeakMessage,
+  speakingMessageId,
+  speechLoadingMessageId
+}) {
+  if (message.role === 'activity') {
+    return <ActivityMessage message={message} />;
   }
+  const isUser = message.role === 'user';
 
   return (
     <div className={`message-row ${isUser ? 'is-user' : ''}`}>
@@ -243,25 +228,31 @@ export function ChatMessage({ message, onPreviewImage, onDeleteMessage }) {
           <MessageContent content={message.content} onPreviewImage={onPreviewImage} />
           {message.timestamp ? <time>{formatTime(message.timestamp)}</time> : null}
         </div>
-        {canAct ? (
-          <div className="message-actions" aria-label="消息操作">
-            <button type="button" className="message-action" onClick={handleCopy}>
-              {copied ? <Check size={13} /> : <Copy size={13} />}
-              <span>{copied ? '已复制' : '复制'}</span>
-            </button>
-            <button type="button" className="message-action is-delete" onClick={() => onDeleteMessage?.(message)}>
-              <Trash2 size={13} />
-              <span>删除</span>
-            </button>
-          </div>
-        ) : null}
+        <MessageActions
+          message={message}
+          onDeleteMessage={onDeleteMessage}
+          onSpeakMessage={onSpeakMessage}
+          speakingMessageId={speakingMessageId}
+          speechLoadingMessageId={speechLoadingMessageId}
+        />
       </div>
     </div>
   );
 }
 
-export function ChatPane({ messages, selectedSession, running, onPreviewImage, onDeleteMessage }) {
+export function ChatPane({
+  messages,
+  selectedSession,
+  running,
+  onPreviewImage,
+  onDeleteMessage,
+  onSpeakMessage,
+  speakingMessageId,
+  speechLoadingMessageId,
+  backgroundInert = false
+}) {
   const bottomRef = useRef(null);
+  const inertProps = backgroundInert ? { inert: '' } : {};
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -269,7 +260,7 @@ export function ChatPane({ messages, selectedSession, running, onPreviewImage, o
 
   if (!messages.length) {
     return (
-      <section className="chat-pane empty-chat">
+      <section className="chat-pane empty-chat" {...inertProps}>
         <div className="empty-orbit">
           <ShieldCheck size={30} />
         </div>
@@ -280,13 +271,16 @@ export function ChatPane({ messages, selectedSession, running, onPreviewImage, o
   }
 
   return (
-    <section className="chat-pane">
+    <section className="chat-pane" {...inertProps}>
       {messages.map((message) => (
         <ChatMessage
           key={message.id}
           message={message}
           onPreviewImage={onPreviewImage}
           onDeleteMessage={onDeleteMessage}
+          onSpeakMessage={onSpeakMessage}
+          speakingMessageId={speakingMessageId}
+          speechLoadingMessageId={speechLoadingMessageId}
         />
       ))}
       <div ref={bottomRef} />

@@ -164,16 +164,19 @@ export function hasRunningKey(runningById, keys) {
 }
 
 export function hasVisibleAssistantForTurn(messages, payload) {
-  const hasExactTurnMatch = messages.some(
+  const hasExactMatch = messages.some(
     (message) =>
       message.role === 'assistant' &&
-      payload?.turnId &&
-      message.turnId === payload.turnId &&
+      ((payload?.messageId && message.id === payload.messageId) ||
+        (payload?.turnId && message.turnId === payload.turnId)) &&
       typeof message.content === 'string' &&
       message.content.trim()
   );
-  if (hasExactTurnMatch) {
+  if (hasExactMatch) {
     return true;
+  }
+  if (payload?.turnId || payload?.messageId) {
+    return false;
   }
 
   const latestUserIndex = messages.reduce(
@@ -189,6 +192,35 @@ export function hasVisibleAssistantForTurn(messages, payload) {
   );
 }
 
+export function hasLatestAssistantAfterLatestUser(messages) {
+  const latestUserIndex = messages.reduce(
+    (latest, message, index) => (message.role === 'user' ? index : latest),
+    -1
+  );
+  return messages.some(
+    (message, index) =>
+      message.role === 'assistant' &&
+      index > latestUserIndex &&
+      typeof message.content === 'string' &&
+      message.content.trim()
+  );
+}
+
+export function hasAssistantResultForTurn(messages, payload) {
+  if (hasVisibleAssistantForTurn(messages, payload)) {
+    return true;
+  }
+  if (payload?.messageId) {
+    return false;
+  }
+  if (payload?.turnId && !payload?.allowLatestAssistantFallback) {
+    return false;
+  }
+  if (!payload?.hadAssistantText && payload?.status !== 'completed') {
+    return false;
+  }
+  return hasLatestAssistantAfterLatestUser(messages);
+}
 
 export function upsertSessionInProject(current, projectId, session, replaceId = null) {
   if (!projectId || !session) {

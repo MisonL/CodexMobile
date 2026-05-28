@@ -4,6 +4,23 @@ import { handleRealtimeVoiceEvent } from './voice-realtime-events.js';
 import { startRealtimeMicrophone } from './voice-realtime-microphone.js';
 import { playRealtimeAudioDelta, stopRealtimePlayback } from './voice-realtime-playback.js';
 
+const REALTIME_CLOSE_MESSAGES = {
+  mac_offline: 'Mac 连接器未在线',
+  mac_reconnected: 'Mac 连接已刷新，请重试',
+  relay_realtime_frame_too_large: '实时语音数据过大',
+  relay_realtime_backpressure: '实时语音连接拥塞，请稍后重试',
+  relay_realtime_frame_invalid: '实时语音数据格式异常',
+  relay_realtime_closed: '实时语音连接已关闭'
+};
+
+export function realtimeCloseMessage(event) {
+  const reason = String(event?.reason || '').trim();
+  if (!reason || reason === 'browser_closed' || reason === 'fixture_realtime_done') {
+    return '';
+  }
+  return REALTIME_CLOSE_MESSAGES[reason] || reason;
+}
+
 export function useRealtimeVoiceDialog(common) {
   const socketRef = useRef(null);
   const streamRef = useRef(null);
@@ -20,6 +37,7 @@ export function useRealtimeVoiceDialog(common) {
   const awaitingResponseRef = useRef(false);
   const bargeInStartedAtRef = useRef(0);
   const suppressAssistantAudioRef = useRef(false);
+  const runtimeContextRef = useRef(null);
 
   const appendIdeaTranscript = useCallback((transcript) => {
     const text = String(transcript || '').replace(/\s+/g, ' ').trim();
@@ -113,11 +131,16 @@ export function useRealtimeVoiceDialog(common) {
     common.setHandoffDraft('');
     common.setError('');
     common.setMode('summarizing');
-    socket.send(JSON.stringify({
-      type: 'voice.handoff.summarize',
-      transcripts,
-      trigger: triggerText
-    }));
+    try {
+      socket.send(JSON.stringify({
+        type: 'voice.handoff.summarize',
+        transcripts,
+        trigger: triggerText
+      }));
+    } catch {
+      suppressAssistantAudioRef.current = false;
+      common.setErrorBriefly('实时语音连接不可用');
+    }
   }, [common, stopPlayback]);
 
   const resumeAssistantAudio = useCallback(() => {
@@ -146,8 +169,9 @@ export function useRealtimeVoiceDialog(common) {
     stopPlayback,
     playAudioDelta,
     stopRealtime,
-    startMicrophone: (socket) => startRealtimeMicrophone(runtimeContext, socket)
+    startMicrophone: (socket) => startRealtimeMicrophone(runtimeContextRef.current, socket)
   };
+  runtimeContextRef.current = runtimeContext;
 
   const startRealtime = useCallback(() => {
     if (!common.status.voiceRealtime?.configured) {
@@ -173,7 +197,7 @@ export function useRealtimeVoiceDialog(common) {
     };
     socket.onmessage = (event) => {
       try {
-        handleRealtimeVoiceEvent(runtimeContext, JSON.parse(event.data));
+        handleRealtimeVoiceEvent(runtimeContextRef.current, JSON.parse(event.data));
       } catch {
         // Ignore malformed proxy events.
       }
@@ -182,13 +206,17 @@ export function useRealtimeVoiceDialog(common) {
       common.setErrorBriefly('实时语音连接失败');
       stopRealtime({ keepPanel: true });
     };
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       if (common.openRef.current && common.realtimeRef.current) {
+        const message = realtimeCloseMessage(event);
         stopRealtime({ keepPanel: true });
+        if (message) {
+          common.setErrorBriefly(message);
+        }
         common.setMode('idle');
       }
     };
-  }, [common, runtimeContext, stopRealtime]);
+  }, [common, stopRealtime]);
 
   return {
     startRealtime,

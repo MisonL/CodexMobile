@@ -1,5 +1,16 @@
 import { isBenignRealtimeCancelError, isVoiceHandoffCommand } from '../voice-utils.js';
 
+const REALTIME_ERROR_MESSAGES = {
+  realtime_audio_frame_too_large: '实时语音数据过大',
+  realtime_pending_queue_overflow: '实时语音请求积压过多，请稍后重试'
+};
+
+export function realtimeVoiceErrorMessage(error) {
+  const value = typeof error === 'object' && error !== null ? error.message : error;
+  const message = String(value || '').trim();
+  return REALTIME_ERROR_MESSAGES[message] || message || '实时语音连接失败';
+}
+
 export function handleRealtimeVoiceEvent(ctx, payload) {
   if (!ctx.openRef.current || !ctx.realtimeRef.current) {
     return;
@@ -77,10 +88,11 @@ export function handleRealtimeVoiceEvent(ctx, payload) {
       ctx.setMode('listening');
       return;
     }
-    const message = payload.error?.message || payload.error || '实时语音连接失败';
+    const message = realtimeVoiceErrorMessage(payload.error);
     ctx.awaitingResponseRef.current = false;
     ctx.setErrorBriefly(message);
     ctx.stopRealtime({ keepPanel: true });
+    ctx.setMode('idle');
     return;
   }
   if (payload.type === 'input_audio_buffer.speech_started') {

@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { hasSupportedImageMagic } from './http-utils.js';
 import { DEFAULT_OPENAI_COMPATIBLE_BASE_URL, openAICompatibleConfig } from './provider-api.js';
 import { CODEXMOBILE_GENERATED_ROOT } from './runtime-paths.js';
 
@@ -105,6 +106,9 @@ export async function imageApiConfig(config = {}) {
 export async function readImageAttachment(attachment) {
   const data = await fs.readFile(attachment.path);
   const mimeType = attachment.mimeType || 'image/png';
+  if (!hasSupportedImageMagic(data, mimeType)) {
+    throw new Error('invalid_image_attachment');
+  }
   return {
     name: attachment.name || path.basename(attachment.path),
     mimeType,

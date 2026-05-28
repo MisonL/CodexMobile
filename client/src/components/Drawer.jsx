@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight, Folder, Loader2, MessageSquarePlus, Pencil, Settings, Trash2, X } from 'lucide-react';
-import { apiFetch } from '../api.js';
 import { compactPath, formatTime } from '../app-core-utils.js';
-import { formatQuotaPercent, quotaRemainingPercent, quotaToneClass } from '../app-quota-utils.js';
+import { DrawerQuota } from './DrawerQuota.jsx';
+
+// Keep longer than the .drawer transform transition so close animation can finish.
+const DRAWER_UNMOUNT_DELAY_MS = 230;
 
 export function Drawer({
   open,
@@ -21,47 +23,59 @@ export function Drawer({
   onSync,
   syncing,
   theme,
-  setTheme
+  setTheme,
+  backgroundInert = false
 }) {
   const [drawerView, setDrawerView] = useState('main');
-  const [quotaExpanded, setQuotaExpanded] = useState(false);
-  const [quotaLoading, setQuotaLoading] = useState(false);
-  const [quotaLoaded, setQuotaLoaded] = useState(false);
-  const [quotaError, setQuotaError] = useState('');
-  const [quotaAccounts, setQuotaAccounts] = useState([]);
+  const closeButtonRef = useRef(null);
+  const [mounted, setMounted] = useState(open);
 
-  async function refreshCodexQuota(event) {
-    event?.preventDefault();
-    event?.stopPropagation();
-    if (quotaLoading) {
+  const closeDrawer = () => {
+    onClose();
+  };
+
+  const hiddenFromAssistive = backgroundInert || !open;
+  const dialogProps = {
+    role: 'dialog',
+    'aria-modal': open && !backgroundInert ? true : undefined,
+    'aria-label': '导航菜单',
+    inert: hiddenFromAssistive ? '' : undefined
+  };
+
+  useEffect(() => {
+    if (!open || backgroundInert) {
       return;
     }
-    setQuotaExpanded(true);
-    setQuotaLoading(true);
-    setQuotaError('');
-    try {
-      const result = await apiFetch('/api/quotas/codex');
-      setQuotaAccounts(Array.isArray(result.accounts) ? result.accounts : []);
-      setQuotaLoaded(true);
-    } catch {
-      setQuotaError('查询失败，点击刷新重试');
-      setQuotaLoaded(true);
-    } finally {
-      setQuotaLoading(false);
+    closeButtonRef.current?.focus();
+  }, [backgroundInert, open]);
+
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      return undefined;
     }
+    const timer = window.setTimeout(() => {
+      setMounted(false);
+      setDrawerView('main');
+    }, DRAWER_UNMOUNT_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [open]);
+
+  if (!mounted) {
+    return null;
   }
 
   if (drawerView === 'settings') {
     return (
       <>
-        <div className={`drawer-backdrop ${open ? 'is-open' : ''}`} onClick={onClose} />
-        <aside className={`drawer ${open ? 'is-open' : ''}`}>
+        <div className={`drawer-backdrop ${open ? 'is-open' : ''}`} onClick={closeDrawer} />
+        <aside className={`drawer ${open ? 'is-open' : ''}`} {...dialogProps}>
           <div className="drawer-subheader">
             <button className="icon-button" onClick={() => setDrawerView('main')} aria-label="返回">
               <ChevronLeft size={22} />
             </button>
             <strong>设置</strong>
-            <button className="icon-button" onClick={onClose} aria-label="关闭菜单">
+            <button ref={closeButtonRef} className="icon-button" onClick={closeDrawer} aria-label="关闭菜单">
               <X size={20} />
             </button>
           </div>
@@ -98,10 +112,10 @@ export function Drawer({
 
   return (
     <>
-      <div className={`drawer-backdrop ${open ? 'is-open' : ''}`} onClick={onClose} />
-      <aside className={`drawer ${open ? 'is-open' : ''}`}>
+      <div className={`drawer-backdrop ${open ? 'is-open' : ''}`} onClick={closeDrawer} />
+      <aside className={`drawer ${open ? 'is-open' : ''}`} {...dialogProps}>
         <div className="drawer-grip">
-          <button className="icon-button" onClick={onClose} aria-label="关闭菜单">
+          <button ref={closeButtonRef} className="icon-button" onClick={closeDrawer} aria-label="关闭菜单">
             <X size={20} />
           </button>
         </div>
@@ -140,7 +154,7 @@ export function Drawer({
                       {loadingProjectId === project.id ? (
                         <div className="thread-empty">
                           <Loader2 className="spin" size={14} />
-                          加载中
+                          加载中...
                         </div>
                       ) : projectSessions.length ? (
                         projectSessions.map((session) => (
@@ -198,91 +212,7 @@ export function Drawer({
             </button>
             <span className="sync-spacer" aria-hidden="true" />
           </div>
-          <div className={`quota-widget ${quotaExpanded ? 'is-expanded' : ''}`}>
-            <div className="quota-row">
-              <button
-                type="button"
-                className="quota-main"
-                onClick={() => setQuotaExpanded((current) => !current)}
-              >
-                <span className="quota-title">额度查询</span>
-                <span className="quota-kind">Codex</span>
-              </button>
-              <button
-                type="button"
-                className="quota-refresh"
-                onClick={refreshCodexQuota}
-                disabled={quotaLoading}
-              >
-                {quotaLoading ? '刷新中...' : '刷新'}
-              </button>
-              <button
-                type="button"
-                className="quota-toggle"
-                onClick={() => setQuotaExpanded((current) => !current)}
-                aria-label={quotaExpanded ? '收起额度查询' : '展开额度查询'}
-              >
-                <ChevronDown size={16} />
-              </button>
-            </div>
-            {quotaExpanded ? (
-              <div className="quota-panel">
-                {quotaError ? (
-                  <button type="button" className="quota-error" onClick={refreshCodexQuota}>
-                    {quotaError}
-                  </button>
-                ) : null}
-                {!quotaError && quotaAccounts.length ? (
-                  quotaAccounts.map((account) => {
-                    const windows = Array.isArray(account.windows) ? account.windows : [];
-                    const accountStatus = account.status || 'ok';
-                    const plan = account.plan || 'Codex';
-                    return (
-                      <div key={account.id} className={`quota-account is-${accountStatus}`}>
-                        <div className="quota-account-head">
-                          <span>{account.label || 'Codex'}</span>
-                          <small>{plan}</small>
-                        </div>
-                        {accountStatus === 'ok' && windows.length ? (
-                          <div className="quota-window-list">
-                            {windows.map((quotaWindow) => {
-                              const percent = quotaRemainingPercent(quotaWindow);
-                              return (
-                                <div
-                                  key={quotaWindow.id}
-                                  className={`quota-window ${quotaToneClass(percent)}`}
-                                  style={{ '--quota-percent': `${percent ?? 0}%` }}
-                                >
-                                  <div className="quota-window-meta">
-                                    <span>{quotaWindow.label}</span>
-                                    <strong>{formatQuotaPercent(quotaWindow)}</strong>
-                                  </div>
-                                  <div className="quota-bar">
-                                    <span />
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            className="quota-account-message"
-                            onClick={accountStatus === 'failed' ? refreshCodexQuota : undefined}
-                          >
-                            {accountStatus === 'disabled' ? '已停用' : '查询失败，点击刷新重试'}
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })
-                ) : null}
-                {!quotaLoading && !quotaError && quotaLoaded && !quotaAccounts.length ? (
-                  <div className="quota-empty">暂无 Codex 凭证</div>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
+          <DrawerQuota />
           <button type="button" className="settings-entry" onClick={() => setDrawerView('settings')}>
             <span>
               <Settings size={18} />

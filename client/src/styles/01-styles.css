@@ -13,7 +13,7 @@
 
 .docs-panel-header {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) 38px;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
   align-items: center;
   gap: 12px;
   min-width: 0;
@@ -113,7 +113,7 @@
 }
 
 .docs-auth-box button {
-  min-height: 30px;
+  min-height: 44px;
   padding: 0 10px;
   border: 0;
   border-radius: 6px;
@@ -180,7 +180,7 @@
   justify-content: center;
   gap: 7px;
   min-width: 116px;
-  min-height: 38px;
+  min-height: 44px;
   padding: 0 14px;
   border: 0;
   border-radius: 999px;
@@ -220,16 +220,12 @@
   flex-direction: column;
   width: min(82vw, 360px);
   padding: calc(env(safe-area-inset-top, 0px) + 10px) 14px calc(env(safe-area-inset-bottom, 0px) + 18px);
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--panel);
   box-shadow: var(--shadow);
   overflow: hidden;
   transform: translateX(-105%);
   transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
   z-index: 50;
-}
-
-[data-theme="dark"] .drawer {
-  background: rgba(31, 31, 31, 0.98);
 }
 
 .drawer.is-open {
@@ -243,7 +239,7 @@
 
 .drawer-subheader {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) 38px;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
   align-items: center;
   gap: 6px;
   padding-bottom: 12px;
