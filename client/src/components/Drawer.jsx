@@ -16,12 +16,14 @@ export function Drawer({
   sessionsByProject,
   loadingProjectId,
   onToggleProject,
+  onHideProject,
   onSelectSession,
   onRenameSession,
   onDeleteSession,
   onNewConversation,
   onSync,
   syncing,
+  hiddenProjectIds,
   theme,
   setTheme,
   backgroundInert = false
@@ -29,6 +31,8 @@ export function Drawer({
   const [drawerView, setDrawerView] = useState('main');
   const closeButtonRef = useRef(null);
   const [mounted, setMounted] = useState(open);
+  const [swipedProjectId, setSwipedProjectId] = useState(null);
+  const projectSwipeRef = useRef(null);
 
   const closeDrawer = () => {
     onClose();
@@ -60,6 +64,40 @@ export function Drawer({
     }, DRAWER_UNMOUNT_DELAY_MS);
     return () => window.clearTimeout(timer);
   }, [open]);
+
+  function handleProjectTouchStart(event, projectId) {
+    const touch = event.touches?.[0];
+    if (!touch) {
+      return;
+    }
+    projectSwipeRef.current = {
+      projectId,
+      x: touch.clientX,
+      y: touch.clientY
+    };
+  }
+
+  function handleProjectTouchMove(event) {
+    const start = projectSwipeRef.current;
+    const touch = event.touches?.[0];
+    if (!start || !touch) {
+      return;
+    }
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+    if (Math.abs(deltaX) < 28 || Math.abs(deltaX) < Math.abs(deltaY) * 1.15) {
+      return;
+    }
+    if (deltaX < 0) {
+      setSwipedProjectId(start.projectId);
+    } else if (swipedProjectId === start.projectId) {
+      setSwipedProjectId(null);
+    }
+  }
+
+  function handleProjectTouchEnd() {
+    projectSwipeRef.current = null;
+  }
 
   if (!mounted) {
     return null;
@@ -110,6 +148,8 @@ export function Drawer({
     );
   }
 
+  const visibleProjects = projects.filter((project) => !hiddenProjectIds?.has(project.id));
+
   return (
     <>
       <div className={`drawer-backdrop ${open ? 'is-open' : ''}`} onClick={closeDrawer} />
@@ -131,24 +171,53 @@ export function Drawer({
         <section className="drawer-section project-section">
           <div className="drawer-heading">项目</div>
           <div className="project-list">
-            {projects.map((project) => {
+            {!visibleProjects.length ? (
+              <div className="project-empty">项目已隐藏，点“对话同步”恢复</div>
+            ) : null}
+            {visibleProjects.map((project) => {
               const isSelected = selectedProject?.id === project.id;
               const isExpanded = Boolean(expandedProjectIds[project.id]);
               const projectSessions = sessionsByProject[project.id] || [];
               return (
                 <div key={project.id} className="project-group">
-                  <button
-                    className={`project-row ${isSelected ? 'is-selected' : ''} ${isExpanded ? 'is-expanded' : ''}`}
-                    onClick={() => onToggleProject(project)}
+                  <div
+                    className={`project-swipe ${swipedProjectId === project.id ? 'is-open' : ''}`}
+                    onTouchStart={(event) => handleProjectTouchStart(event, project.id)}
+                    onTouchMove={handleProjectTouchMove}
+                    onTouchEnd={handleProjectTouchEnd}
+                    onTouchCancel={handleProjectTouchEnd}
                   >
-                    <Folder size={18} />
-                    <span>
-                      <strong>{project.name}</strong>
-                      <small>{compactPath(project.path)}</small>
-                    </span>
-                    <small className="project-count">{project.sessionCount || projectSessions.length || 0}</small>
-                    <ChevronDown size={15} className="project-chevron" />
-                  </button>
+                    <button
+                      type="button"
+                      className="project-hide-action"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSwipedProjectId(null);
+                        onHideProject(project);
+                      }}
+                      aria-label={`隐藏项目 ${project.name}`}
+                    >
+                      隐藏
+                    </button>
+                    <button
+                      className={`project-row ${isSelected ? 'is-selected' : ''} ${isExpanded ? 'is-expanded' : ''}`}
+                      onClick={() => {
+                        if (swipedProjectId === project.id) {
+                          setSwipedProjectId(null);
+                          return;
+                        }
+                        onToggleProject(project);
+                      }}
+                    >
+                      <Folder size={18} />
+                      <span>
+                        <strong>{project.name}</strong>
+                        <small>{compactPath(project.path)}</small>
+                      </span>
+                      <small className="project-count">{project.sessionCount || projectSessions.length || 0}</small>
+                      <ChevronDown size={15} className="project-chevron" />
+                    </button>
+                  </div>
                   {isExpanded ? (
                     <div className="thread-list">
                       {loadingProjectId === project.id ? (
@@ -165,7 +234,7 @@ export function Drawer({
                             <button
                               type="button"
                               className="thread-main"
-                              onClick={() => onSelectSession(session)}
+                              onClick={() => onSelectSession(project, session)}
                             >
                               <span>{session.title || '对话'}</span>
                               <small>{session.draft ? '待发送' : formatTime(session.updatedAt)}</small>

@@ -3,6 +3,12 @@ import { DEFAULT_OPENAI_COMPATIBLE_BASE_URL, openAICompatibleConfig } from './pr
 export const DEFAULT_SPEECH_MODEL = 'gpt-4o-mini-tts';
 export const DEFAULT_SPEECH_VOICE = 'coral';
 export const DEFAULT_SPEECH_FORMAT = 'mp3';
+export const DASHSCOPE_SPEECH_PROVIDER = 'dashscope';
+export const DASHSCOPE_SPEECH_BASE_URL = 'https://dashscope.aliyuncs.com/api/v1';
+export const DASHSCOPE_SPEECH_PATH = '/services/aigc/multimodal-generation/generation';
+export const DEFAULT_DASHSCOPE_SPEECH_MODEL = 'qwen3-tts-flash';
+export const DEFAULT_DASHSCOPE_SPEECH_VOICE = 'Cherry';
+export const DEFAULT_DASHSCOPE_SPEECH_LANGUAGE_TYPE = 'chinese';
 export const SPEECH_TIMEOUT_MS = Number(process.env.CODEXMOBILE_SPEECH_TIMEOUT_MS || 120000);
 export const LOCAL_SPEECH_TIMEOUT_MS = Number(process.env.CODEXMOBILE_SPEECH_LOCAL_TIMEOUT_MS || 45000);
 export const SPEECH_MAX_INPUT_CHARS = Number(process.env.CODEXMOBILE_SPEECH_MAX_INPUT_CHARS || 4000);
@@ -107,12 +113,61 @@ export function normalizeSpeechFormat(value) {
   return SPEECH_MIME_TYPES.has(format) ? format : DEFAULT_SPEECH_FORMAT;
 }
 
+export function speechProvider() {
+  const provider = String(process.env.CODEXMOBILE_SPEECH_PROVIDER || process.env.CODEXMOBILE_TTS_PROVIDER || 'dashscope')
+    .trim()
+    .toLowerCase();
+  if (['openai', 'openai-compatible', 'compatible'].includes(provider)) {
+    return 'openai';
+  }
+  if (['ali', 'aliyun', 'alibaba', 'bailian', 'dashscope', 'qwen'].includes(provider)) {
+    return DASHSCOPE_SPEECH_PROVIDER;
+  }
+  return DASHSCOPE_SPEECH_PROVIDER;
+}
+
 export function speechApiKeys() {
   return [
     process.env.CODEXMOBILE_SPEECH_API_KEY,
     process.env.CODEXMOBILE_TTS_API_KEY,
     process.env.OPENAI_API_KEY
   ].filter(Boolean);
+}
+
+export function dashscopeSpeechApiKeys() {
+  return [
+    process.env.CODEXMOBILE_DASHSCOPE_API_KEY,
+    process.env.DASHSCOPE_API_KEY,
+    process.env.CODEXMOBILE_SPEECH_API_KEY,
+    process.env.CODEXMOBILE_TTS_API_KEY
+  ].filter(Boolean);
+}
+
+export function dashscopeSpeechBaseUrl() {
+  return String(
+    process.env.CODEXMOBILE_DASHSCOPE_TTS_BASE_URL ||
+      process.env.CODEXMOBILE_SPEECH_DASHSCOPE_BASE_URL ||
+      DASHSCOPE_SPEECH_BASE_URL
+  ).replace(/\/+$/, '');
+}
+
+export function dashscopeSpeechConfig() {
+  return {
+    provider: DASHSCOPE_SPEECH_PROVIDER,
+    baseUrl: dashscopeSpeechBaseUrl(),
+    apiKeys: dashscopeSpeechApiKeys(),
+    model: process.env.CODEXMOBILE_SPEECH_MODEL ||
+      process.env.CODEXMOBILE_TTS_MODEL ||
+      DEFAULT_DASHSCOPE_SPEECH_MODEL,
+    voice: process.env.CODEXMOBILE_SPEECH_VOICE ||
+      process.env.CODEXMOBILE_TTS_VOICE ||
+      DEFAULT_DASHSCOPE_SPEECH_VOICE,
+    languageType: String(
+      process.env.CODEXMOBILE_SPEECH_LANGUAGE_TYPE ||
+        process.env.CODEXMOBILE_TTS_LANGUAGE_TYPE ||
+        DEFAULT_DASHSCOPE_SPEECH_LANGUAGE_TYPE
+    ).trim().toLowerCase()
+  };
 }
 
 export async function voiceSpeechConfig(config = {}) {
@@ -149,27 +204,33 @@ export function speechMimeType(format) {
 }
 
 export function publicVoiceSpeechStatus(config = {}) {
-  const baseUrl = process.env.CODEXMOBILE_SPEECH_BASE_URL ||
-    process.env.CODEXMOBILE_TTS_BASE_URL ||
-    config.baseUrl ||
-    DEFAULT_OPENAI_COMPATIBLE_BASE_URL;
+  const provider = speechProvider();
+  const dashscopeConfig = dashscopeSpeechConfig();
+  const baseUrl = provider === DASHSCOPE_SPEECH_PROVIDER
+    ? dashscopeConfig.baseUrl
+    : process.env.CODEXMOBILE_SPEECH_BASE_URL ||
+      process.env.CODEXMOBILE_TTS_BASE_URL ||
+      config.baseUrl ||
+      DEFAULT_OPENAI_COMPATIBLE_BASE_URL;
   const localFallback = localSpeechFallbackEnabled();
   const edge = edgeSpeechEnabled();
 
   return {
     configured: !truthyEnv(process.env.CODEXMOBILE_SPEECH_DISABLED),
-    provider: edge ? EDGE_SPEECH_PROVIDER : providerLabel(baseUrl),
-    model: edge ? EDGE_SPEECH_FORMAT : process.env.CODEXMOBILE_SPEECH_MODEL ||
+    provider: provider === DASHSCOPE_SPEECH_PROVIDER ? DASHSCOPE_SPEECH_PROVIDER : providerLabel(baseUrl),
+    model: provider === DASHSCOPE_SPEECH_PROVIDER ? dashscopeConfig.model : process.env.CODEXMOBILE_SPEECH_MODEL ||
       process.env.CODEXMOBILE_TTS_MODEL ||
       DEFAULT_SPEECH_MODEL,
-    voice: edge ? edgeSpeechVoice() : process.env.CODEXMOBILE_SPEECH_VOICE ||
+    voice: provider === DASHSCOPE_SPEECH_PROVIDER ? dashscopeConfig.voice : process.env.CODEXMOBILE_SPEECH_VOICE ||
       process.env.CODEXMOBILE_TTS_VOICE ||
       DEFAULT_SPEECH_VOICE,
-    format: edge ? 'webm' : normalizeSpeechFormat(
+    format: provider === DASHSCOPE_SPEECH_PROVIDER ? 'url-audio' : normalizeSpeechFormat(
       process.env.CODEXMOBILE_SPEECH_FORMAT ||
       process.env.CODEXMOBILE_TTS_FORMAT ||
       DEFAULT_SPEECH_FORMAT
     ),
+    languageType: provider === DASHSCOPE_SPEECH_PROVIDER ? dashscopeConfig.languageType : '',
+    dashscopeConfigured: provider === DASHSCOPE_SPEECH_PROVIDER && dashscopeConfig.apiKeys.length > 0,
     edge,
     edgeVoice: edge ? edgeSpeechVoice() : '',
     edgeFormat: edge ? EDGE_SPEECH_FORMAT : '',

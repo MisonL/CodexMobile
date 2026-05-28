@@ -1,7 +1,8 @@
 import { useCallback, useRef } from 'react';
 import { apiFetch, clearToken } from '../api.js';
 import { canUseAppShellFromStatus, connectionStateFromStatus } from '../relay-status.js';
-import { createDraftSession, isDraftSession, upsertSessionInProject } from '../app-core-utils.js';
+import { isDraftSession } from '../app-core-utils.js';
+import { createProjectSessionActions } from './project-session-actions.js';
 
 function blurActiveElement() {
   if (typeof document.activeElement?.blur === 'function') {
@@ -72,10 +73,14 @@ export function useProjectController(app, runRegistry) {
     const data = await apiFetch('/api/projects');
     const list = data.projects || [];
     app.setProjects(list);
+    const hiddenIds = app.hiddenProjectIdsRef.current;
+    const visibleList = list.filter((project) => !hiddenIds.has(project.id));
+    const currentSelected = app.selectedProjectRef.current;
     const preferred =
-      list.find((project) => project.name.toLowerCase() === 'codexmobile') ||
-      list.find((project) => project.path.toLowerCase().includes('codexmobile')) ||
-      list[0] ||
+      visibleList.find((project) => project.id === currentSelected?.id) ||
+      visibleList.find((project) => project.name.toLowerCase() === 'codexmobile') ||
+      visibleList.find((project) => project.path.toLowerCase().includes('codexmobile')) ||
+      visibleList[0] ||
       null;
     app.setSelectedProject(preferred);
     if (preferred) {
@@ -115,10 +120,46 @@ export function useProjectController(app, runRegistry) {
     app.setSyncing(true);
     try {
       await apiFetch('/api/sync', { method: 'POST' });
+      const emptyHiddenProjectIds = new Set();
+      app.hiddenProjectIdsRef.current = emptyHiddenProjectIds;
+      app.setHiddenProjectIds(emptyHiddenProjectIds);
       await loadStatus();
       await loadProjects();
     } finally {
       app.setSyncing(false);
+    }
+  };
+
+  const handleHideProject = async (project) => {
+    if (!project?.id) {
+      return;
+    }
+    const nextHiddenProjectIds = new Set(app.hiddenProjectIdsRef.current);
+    nextHiddenProjectIds.add(project.id);
+    app.hiddenProjectIdsRef.current = nextHiddenProjectIds;
+    app.setHiddenProjectIds(nextHiddenProjectIds);
+    app.setExpandedProjectIds((current) => {
+      const next = { ...current };
+      delete next[project.id];
+      return next;
+    });
+
+    if (app.selectedProjectRef.current?.id !== project.id) {
+      return;
+    }
+
+    const nextProject = app.projects.find((item) => item.id !== project.id && !nextHiddenProjectIds.has(item.id)) || null;
+    app.selectedProjectRef.current = nextProject;
+    app.selectedSessionRef.current = null;
+    app.setSelectedProject(nextProject);
+    app.setSelectedSession(null);
+    clearSelectedMessages();
+    app.setAttachments([]);
+    app.setInput('');
+
+    if (nextProject) {
+      app.setExpandedProjectIds((current) => ({ ...current, [nextProject.id]: true }));
+      await loadSessions(nextProject, true);
     }
   };
 
@@ -145,9 +186,21 @@ export function useProjectController(app, runRegistry) {
     }
   };
 
-  const handleSelectSession = async (session) => {
+  const handleSelectSession = async (project, session) => {
+    const nextProject =
+      project ||
+      app.projects.find((item) => item.id === session?.projectId) ||
+      app.selectedProjectRef.current;
     blurActiveElement();
+    if (nextProject?.id) {
+      app.selectedProjectRef.current = nextProject;
+      app.setSelectedProject(nextProject);
+      app.setExpandedProjectIds((current) => ({ ...current, [nextProject.id]: true }));
+    }
+    app.selectedSessionRef.current = session;
     app.setSelectedSession(session);
+    app.setAttachments([]);
+    app.setInput('');
     if (isDraftSession(session)) {
       clearSelectedMessages();
       app.setDrawerOpen(false);
@@ -189,96 +242,11 @@ export function useProjectController(app, runRegistry) {
     }
   };
 
-  const handleRenameSession = async (project, session) => {
-    if (!project?.id || !session?.id) {
-      return;
-    }
-    const currentTitle = session.title || '对话';
-    const nextTitle = window.prompt('重命名线程', currentTitle)?.trim().slice(0, 52);
-    if (!nextTitle || nextTitle === currentTitle) {
-      return;
-    }
-    const applyLocalTitle = () => {
-      app.setSessionsByProject((current) => ({
-        ...current,
-        [project.id]: (current[project.id] || []).map((item) =>
-          item.id === session.id ? { ...item, title: nextTitle, titleLocked: true } : item
-        )
-      }));
-      if (app.selectedSessionRef.current?.id === session.id) {
-        app.setSelectedSession((current) => (current ? { ...current, title: nextTitle, titleLocked: true } : current));
-      }
-    };
-    if (isDraftSession(session)) {
-      applyLocalTitle();
-      return;
-    }
-    try {
-      await apiFetch(`/api/projects/${encodeURIComponent(project.id)}/sessions/${encodeURIComponent(session.id)}`, {
-        method: 'PATCH',
-        body: { title: nextTitle }
-      });
-      applyLocalTitle();
-      await refreshProjectSessions(project);
-    } catch (error) {
-      window.alert(`重命名失败：${error.message}`);
-    }
-  };
-
-  const handleDeleteSession = async (project, session) => {
-    if (!project?.id || !session?.id) {
-      return;
-    }
-    const title = session.title || '对话';
-    const confirmed = window.confirm(`从 CodexMobile 隐藏线程“${title}”？不会影响 Codex App 的原始会话。`);
-    if (!confirmed) {
-      return;
-    }
-    const removeLocalSession = () => {
-      app.setSessionsByProject((current) => ({
-        ...current,
-        [project.id]: (current[project.id] || []).filter((item) => item.id !== session.id)
-      }));
-      if (app.selectedSessionRef.current?.id === session.id) {
-        app.setSelectedSession(null);
-        clearSelectedMessages();
-        app.setAttachments([]);
-        app.setInput('');
-      }
-    };
-    if (isDraftSession(session)) {
-      removeLocalSession();
-      return;
-    }
-    try {
-      await apiFetch(`/api/projects/${encodeURIComponent(project.id)}/sessions/${encodeURIComponent(session.id)}`, {
-        method: 'DELETE'
-      });
-      removeLocalSession();
-      await refreshProjectSessions(project);
-    } catch (error) {
-      const message = String(error.message || '');
-      window.alert(
-        message.toLowerCase().includes('running') ? '线程正在运行，稍后再删除。' : `删除失败：${message}`
-      );
-    }
-  };
-
-  const handleNewConversation = () => {
-    const project = app.selectedProject || app.projects[0];
-    if (!project) {
-      return;
-    }
-    blurActiveElement();
-    const draft = createDraftSession(project);
-    app.setSelectedProject(project);
-    app.setSelectedSession(draft);
-    app.setExpandedProjectIds((current) => ({ ...current, [project.id]: true }));
-    app.setSessionsByProject((current) => upsertSessionInProject(current, project.id, draft));
-    clearSelectedMessages();
-    app.setAttachments([]);
-    app.setDrawerOpen(false);
-  };
+  const {
+    handleRenameSession,
+    handleDeleteSession,
+    handleNewConversation
+  } = createProjectSessionActions({ app, clearSelectedMessages, refreshProjectSessions, blurActiveElement });
 
   return {
     loadStatus,
@@ -286,6 +254,7 @@ export function useProjectController(app, runRegistry) {
     bootstrap,
     handleSync,
     handleToggleProject,
+    handleHideProject,
     handleSelectSession,
     handleRenameSession,
     handleDeleteSession,

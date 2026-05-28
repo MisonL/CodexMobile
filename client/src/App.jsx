@@ -28,7 +28,7 @@ export default function App() {
   const wasDrawerOpenRef = useRef(false);
   const {
     status, authenticated, drawerOpen, setDrawerOpen, projects, selectedProject,
-    expandedProjectIds, sessionsByProject, loadingProjectId, selectedSession,
+    expandedProjectIds, hiddenProjectIds, sessionsByProject, loadingProjectId, selectedSession,
     messages, previewImage, setPreviewImage, docsOpen, setDocsOpen, docsBusy,
     docsError, input, setInput, attachments, uploading, permissionMode,
     setPermissionMode, selectedModel, setSelectedModel, selectedReasoningEffort,
@@ -51,7 +51,7 @@ export default function App() {
   const projectController = useProjectController(app, runRegistry);
   const {
     loadStatus, bootstrap, handleSync, handleToggleProject,
-    handleSelectSession, handleRenameSession, handleDeleteSession, handleNewConversation
+    handleHideProject, handleSelectSession, handleRenameSession, handleDeleteSession, handleNewConversation
   } = projectController;
   const messageSpeech = useMessageSpeech(selectedSession?.id);
   const { handleDeleteMessage, handleUploadFiles, handleRemoveAttachment } = useMessageActions(
@@ -98,6 +98,10 @@ export default function App() {
   useEffect(() => {
     selectedSessionRef.current = selectedSession;
   }, [selectedSession]);
+
+  useEffect(() => {
+    app.hiddenProjectIdsRef.current = hiddenProjectIds;
+  }, [app.hiddenProjectIdsRef, hiddenProjectIds]);
 
 
   useEffect(() => {
@@ -178,12 +182,14 @@ export default function App() {
         sessionsByProject={sessionsByProject}
         loadingProjectId={loadingProjectId}
         onToggleProject={handleToggleProject}
+        onHideProject={handleHideProject}
         onSelectSession={handleSelectSession}
         onRenameSession={handleRenameSession}
         onDeleteSession={handleDeleteSession}
         onNewConversation={handleNewConversation}
         onSync={handleSync}
         syncing={syncing}
+        hiddenProjectIds={hiddenProjectIds}
         theme={theme}
         setTheme={setTheme}
         backgroundInert={modalBackgroundInert}

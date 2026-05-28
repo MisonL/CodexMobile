@@ -10,6 +10,7 @@ export function useAppState() {
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
   const [expandedProjectIds, setExpandedProjectIds] = useState({});
+  const [hiddenProjectIds, setHiddenProjectIds] = useState(() => new Set());
   const [sessionsByProject, setSessionsByProject] = useState({});
   const [loadingProjectId, setLoadingProjectId] = useState(null);
   const [selectedSession, setSelectedSession] = useState(null);
@@ -41,6 +42,7 @@ export function useAppState() {
   const wsRef = useRef(null);
   const selectedProjectRef = useRef(null);
   const selectedSessionRef = useRef(null);
+  const hiddenProjectIdsRef = useRef(new Set());
   const runningByIdRef = useRef({});
   const lastLocalRunAtRef = useRef(0);
   const activePollsRef = useRef(new Set());
@@ -49,14 +51,14 @@ export function useAppState() {
   return {
     status, setStatus, authenticated, setAuthenticated, drawerOpen, setDrawerOpen,
     projects, setProjects, selectedProject, setSelectedProject, expandedProjectIds,
-    setExpandedProjectIds, sessionsByProject, setSessionsByProject, loadingProjectId,
-    setLoadingProjectId, selectedSession, setSelectedSession, messages, setMessages,
+    setExpandedProjectIds, hiddenProjectIds, setHiddenProjectIds, sessionsByProject,
+    setSessionsByProject, loadingProjectId, setLoadingProjectId, selectedSession, setSelectedSession, messages, setMessages,
     previewImage, setPreviewImage, docsOpen, setDocsOpen, docsBusy, setDocsBusy,
     docsError, setDocsError, input, setInput, attachments, setAttachments, uploading,
     setUploading, permissionMode, setPermissionMode, selectedModel, setSelectedModel,
     selectedReasoningEffort, setSelectedReasoningEffort, runningById, setRunningById,
     theme, setTheme, syncing, setSyncing, connectionState, setConnectionState, wsRef,
-    selectedProjectRef, selectedSessionRef, runningByIdRef, lastLocalRunAtRef,
-    activePollsRef, turnRefreshTimersRef
+    selectedProjectRef, selectedSessionRef, hiddenProjectIdsRef, runningByIdRef,
+    lastLocalRunAtRef, activePollsRef, turnRefreshTimersRef
   };
 }

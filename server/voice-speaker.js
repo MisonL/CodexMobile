@@ -3,8 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { synthesizeDashscopeSpeech } from './voice-speaker-dashscope.js';
 import { synthesizeEdgeSpeech } from './voice-speaker-edge.js';
 import {
+  DASHSCOPE_SPEECH_PROVIDER,
   DEFAULT_SPEECH_FORMAT,
   LOCAL_SPEECH_PROVIDER,
   LOCAL_SPEECH_STDIO_LIMIT,
@@ -17,6 +19,7 @@ import {
   requestSpeech,
   safeProviderMessage,
   speechMimeType,
+  speechProvider,
   providerLabel,
   truthyEnv,
   voiceSpeechConfig
@@ -137,37 +140,51 @@ export async function synthesizeSpeech(input, codexConfig = {}) {
     throw error;
   }
 
+  const provider = speechProvider();
+  let lastError = null;
+
+  if (provider === DASHSCOPE_SPEECH_PROVIDER) {
+    try {
+      return await synthesizeDashscopeSpeech(text);
+    } catch (error) {
+      lastError = error;
+      console.warn(`[voice] DashScope speech failed, falling back: ${safeProviderMessage(error?.message || '')}`);
+    }
+  }
+
+  if (provider === 'openai') {
+    const config = await voiceSpeechConfig(codexConfig);
+    const apiKeys = config.apiKeys.length ? config.apiKeys : [''];
+    for (let index = 0; index < apiKeys.length; index += 1) {
+      try {
+        const data = await requestSpeech({ text, config, apiKey: apiKeys[index] });
+        return {
+          data,
+          mimeType: speechMimeType(config.format),
+          model: config.model,
+          voice: config.voice,
+          provider: providerLabel(config.baseUrl)
+        };
+      } catch (error) {
+        lastError = error;
+        const invalidKey = error.status === 401 ||
+          /invalid api key|incorrect api key|unauthorized/i.test(error.message || '');
+        if (invalidKey && index < apiKeys.length - 1) {
+          console.warn(`[voice] speech API key #${index + 1} failed, trying next key.`);
+          continue;
+        }
+        console.warn(`[voice] OpenAI-compatible speech failed, falling back: ${safeProviderMessage(error?.message || '')}`);
+        break;
+      }
+    }
+  }
+
   if (edgeSpeechEnabled()) {
     try {
       return await synthesizeEdgeSpeech(text);
     } catch (error) {
-      console.warn(`[voice] Edge speech failed, falling back: ${safeProviderMessage(error?.message || '')}`);
-    }
-  }
-
-  const config = await voiceSpeechConfig(codexConfig);
-  const apiKeys = config.apiKeys.length ? config.apiKeys : [''];
-  let lastError = null;
-
-  for (let index = 0; index < apiKeys.length; index += 1) {
-    try {
-      const data = await requestSpeech({ text, config, apiKey: apiKeys[index] });
-      return {
-        data,
-        mimeType: speechMimeType(config.format),
-        model: config.model,
-        voice: config.voice,
-        provider: providerLabel(config.baseUrl)
-      };
-    } catch (error) {
       lastError = error;
-      const invalidKey = error.status === 401 ||
-        /invalid api key|incorrect api key|unauthorized/i.test(error.message || '');
-      if (invalidKey && index < apiKeys.length - 1) {
-        console.warn(`[voice] speech API key #${index + 1} failed, trying next key.`);
-        continue;
-      }
-      break;
+      console.warn(`[voice] Edge speech failed, falling back: ${safeProviderMessage(error?.message || '')}`);
     }
   }
 

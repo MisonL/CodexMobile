@@ -9,6 +9,7 @@ import {
 } from '../server/voice-speaker.js';
 
 const SPEECH_PROVIDER_ENV = {
+  CODEXMOBILE_SPEECH_PROVIDER: 'openai',
   CODEXMOBILE_SPEECH_DISABLE_EDGE: '1',
   CODEXMOBILE_SPEECH_DISABLE_LOCAL_FALLBACK: '1',
   CODEXMOBILE_SPEECH_BASE_URL: 'http://127.0.0.1:12345',
@@ -54,6 +55,45 @@ test('synthesizeSpeech returns a provider response without missing helper refere
     assert.equal(result.voice, 'test-voice');
     assert.equal(result.mimeType, 'audio/mpeg');
     assert.deepEqual(result.data, Buffer.from('audio'));
+  });
+});
+
+test('synthesizeSpeech supports DashScope TTS audio URL responses', async () => {
+  const calls = [];
+  await withSpeechProvider(async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    if (String(url).includes('/services/aigc/multimodal-generation/generation')) {
+      assert.equal(options.headers.authorization, 'Bearer dashscope-key');
+      assert.deepEqual(JSON.parse(options.body), {
+        model: 'qwen3-tts-flash',
+        input: {
+          text: '你好',
+          voice: 'Cherry',
+          language_type: 'chinese'
+        }
+      });
+      return new Response(JSON.stringify({
+        output: { audio: { url: 'https://example.test/audio.mp3' } }
+      }));
+    }
+    return new Response(Buffer.from('dash-audio'), {
+      headers: { 'content-type': 'audio/mpeg' }
+    });
+  }, async () => {
+    const result = await synthesizeSpeech('你好');
+
+    assert.equal(result.provider, 'dashscope');
+    assert.equal(result.model, 'qwen3-tts-flash');
+    assert.equal(result.voice, 'Cherry');
+    assert.equal(result.mimeType, 'audio/mpeg');
+    assert.deepEqual(result.data, Buffer.from('dash-audio'));
+    assert.equal(calls.length, 2);
+  }, {
+    CODEXMOBILE_SPEECH_PROVIDER: 'dashscope',
+    CODEXMOBILE_SPEECH_API_KEY: '',
+    CODEXMOBILE_SPEECH_MODEL: '',
+    CODEXMOBILE_SPEECH_VOICE: '',
+    CODEXMOBILE_DASHSCOPE_API_KEY: 'dashscope-key'
   });
 });
 
