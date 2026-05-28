@@ -3,7 +3,6 @@ import {
   DEFAULT_RELAY_IDLE_HEARTBEAT_MS,
   DEFAULT_RELAY_REQUEST_TIMEOUT_MS,
   buildLocalTargetUrl,
-  createConnectorInstanceId,
   isStrongRelaySecret,
   parsePositiveInt
 } from '../server/relay-protocol.js';
@@ -20,7 +19,8 @@ const runtimeConfig = await resolveRelayRuntimeConfig({
     env: process.env,
     cwd: process.cwd()
   }),
-  env: process.env
+  env: process.env,
+  ensureConnectorInstanceId: true
 });
 
 export const RELAY_URL = runtimeConfig.relayUrl;
@@ -35,7 +35,7 @@ export const RELAY_KEEPALIVE_MS = parseRelayKeepaliveMs(
 );
 export const REQUEST_TIMEOUT_MS = parsePositiveInt(process.env.CODEXMOBILE_RELAY_REQUEST_TIMEOUT_MS, DEFAULT_RELAY_REQUEST_TIMEOUT_MS);
 export const MAX_BODY_BYTES = parsePositiveInt(process.env.CODEXMOBILE_RELAY_SMALL_BODY_BYTES, 2 * 1024 * 1024);
-export const connectorInstanceId = process.env.CODEXMOBILE_RELAY_CONNECTOR_ID || createConnectorInstanceId();
+export const connectorInstanceId = runtimeConfig.connectorInstanceId;
 
 export function requireConfig() {
   if (!RELAY_URL) {

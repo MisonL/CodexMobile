@@ -43,7 +43,7 @@ export function createPendingRequestStore({
     return deleted;
   }
 
-  function create({ envelope, timeoutMs, epoch, clientKey = '', streamHandlers = null }) {
+  const create = ({ envelope, timeoutMs, epoch, clientKey = '', streamHandlers = null }) => {
     const requestId = envelope.requestId || createRequestId();
     const pending = {
       resolve: () => {},
@@ -53,6 +53,7 @@ export function createPendingRequestStore({
       clientKey,
       streamHandlers,
       streamSequence: 0,
+      streamBytes: 0,
       streamStarted: false
     };
     const response = new Promise((resolve, reject) => {
@@ -68,7 +69,7 @@ export function createPendingRequestStore({
     requests.set(requestId, pending);
     onChanged?.();
     return { requestId, epoch, response };
-  }
+  };
 
   function failForEpoch(epoch, status, error) {
     for (const [requestId, pending] of requests.entries()) {

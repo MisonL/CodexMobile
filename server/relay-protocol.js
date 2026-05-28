@@ -7,6 +7,8 @@ export const DEFAULT_RELAY_IDLE_HEARTBEAT_MS = 300000;
 export const DEFAULT_RELAY_SMALL_BODY_LIMIT = 2 * 1024 * 1024;
 export const DEFAULT_RELAY_STREAM_CHUNK_BYTES = 256 * 1024;
 export const DEFAULT_RELAY_WS_BUFFERED_BYTES = 4 * 1024 * 1024;
+export const DEFAULT_RELAY_WS_MAX_PAYLOAD_BYTES = 512 * 1024;
+export const DEFAULT_RELAY_REALTIME_FRAME_BYTES = 256 * 1024;
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
@@ -44,6 +46,17 @@ export function isStrongRelaySecret(value) {
   return String(value || '').trim().length >= 32;
 }
 
+export function timingSafeTextEqual(left, right) {
+  const leftValue = String(left || '');
+  const rightValue = String(right || '');
+  if (!leftValue || !rightValue) {
+    return false;
+  }
+  const leftHash = crypto.createHash('sha256').update(leftValue).digest();
+  const rightHash = crypto.createHash('sha256').update(rightValue).digest();
+  return crypto.timingSafeEqual(leftHash, rightHash);
+}
+
 export function parsePositiveInt(value, fallback) {
   const next = Number(value);
   return Number.isFinite(next) && next > 0 ? Math.floor(next) : fallback;
@@ -69,8 +82,12 @@ export function sendWsJson(ws, payload) {
   if (ws.readyState !== ws.OPEN) {
     return false;
   }
-  ws.send(JSON.stringify(payload));
-  return true;
+  try {
+    ws.send(JSON.stringify(payload));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function safePathWithQuery(pathname, search = '') {

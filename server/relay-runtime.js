@@ -3,7 +3,8 @@ import {
   createRequestId,
   logRelayEvent,
   safeJsonParse,
-  sendWsJson
+  sendWsJson,
+  timingSafeTextEqual
 } from './relay-protocol.js';
 import { createBrowserTokenCache } from './relay-runtime-token-cache.js';
 import { createMacConnectionManager } from './relay-runtime-mac.js';
@@ -64,13 +65,19 @@ export function createRelayRuntime({
     scheduleHeartbeat: () => mac.scheduleHeartbeat()
   });
 
-  function hasCachedBrowserToken(token) {
+  const hasCachedBrowserToken = (token) => {
     return browserTokenCache.has(token);
-  }
+  };
 
-  function isValidRelaySecret(value) {
-    return Boolean(value && (value === relaySecret || value === previousRelaySecret));
-  }
+  const isValidRelaySecret = (value) => {
+    if (!value) {
+      return false;
+    }
+    return (
+      timingSafeTextEqual(value, relaySecret) ||
+      (Boolean(previousRelaySecret) && timingSafeTextEqual(value, previousRelaySecret))
+    );
+  };
 
   function currentRelayStatus(authenticated = false) {
     browserTokenCache.cleanup();

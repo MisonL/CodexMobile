@@ -1,32 +1,30 @@
 const HTTP_BAD_GATEWAY = 502;
 
 export function createStreamResponseHandler({ pendingRequests }) {
-  async function handle(payload) {
-    const pending = pendingRequests.get(payload.requestId);
-    if (!pending || !pending.streamHandlers || (payload.macConnectionEpoch && payload.macConnectionEpoch !== pending.epoch)) {
-      return;
+  const requireSettled = (requestId) => {
+    const settled = pendingRequests.settle(requestId, () => {});
+    if (!settled?.streamHandlers) {
+      throw Object.assign(new Error('relay_stream_missing'), { status: HTTP_BAD_GATEWAY });
     }
-    if (payload.type === 'http.response.start') {
-      pending.streamStarted = true;
-      await pending.streamHandlers.onStart?.(payload);
-      return;
-    }
-    if (payload.type === 'http.response.chunk') {
-      await handleChunk(pending, payload);
-      return;
-    }
-    if (payload.type === 'http.stream.error') {
-      const settled = pendingRequests.settle(payload.requestId, () => {});
-      await settled.streamHandlers.onError?.(payload);
-      settled.reject(Object.assign(new Error(payload.error || 'relay_stream_error'), { status: payload.status || HTTP_BAD_GATEWAY }));
-      return;
-    }
-    const settled = pendingRequests.settle(payload.requestId, () => {});
-    await settled.streamHandlers.onEnd?.(payload);
-    settled.resolve(payload);
-  }
+    return settled;
+  };
 
-  async function handleChunk(pending, payload) {
+  const settleStreamError = (requestId, errorOrMessage) => {
+    const error = errorOrMessage instanceof Error
+      ? Object.assign(errorOrMessage, { status: errorOrMessage.status || HTTP_BAD_GATEWAY })
+      : Object.assign(new Error(errorOrMessage), { status: HTTP_BAD_GATEWAY });
+    const settled = pendingRequests.settle(requestId, () => {});
+    settled?.reject(error);
+    return error;
+  };
+
+  const streamErrorFromPayload = (payload) => {
+    return Object.assign(new Error(payload.error || 'relay_stream_error'), {
+      status: payload.status || HTTP_BAD_GATEWAY
+    });
+  };
+
+  const handleChunk = async (pending, payload) => {
     if (!pending.streamStarted) {
       throw settleStreamError(payload.requestId, 'relay_stream_start_missing');
     }
@@ -36,15 +34,70 @@ export function createStreamResponseHandler({ pendingRequests }) {
       throw settleStreamError(payload.requestId, 'relay_stream_chunk_invalid');
     }
     pending.streamSequence = expectedSequence;
+    pending.streamBytes += bytes.length;
     await pending.streamHandlers.onChunk?.(bytes, payload);
-  }
+  };
 
-  function settleStreamError(requestId, message) {
-    const error = Object.assign(new Error(message), { status: HTTP_BAD_GATEWAY });
-    const settled = pendingRequests.settle(requestId, () => {});
-    settled?.reject(error);
-    return error;
-  }
+  const handleEnd = async (pending, payload) => {
+    if (!pending.streamStarted) {
+      throw settleStreamError(payload.requestId, 'relay_stream_start_missing');
+    }
+    const chunks = Number(payload.chunks);
+    const totalBytes = Number(payload.totalBytes);
+    if (
+      !Number.isFinite(chunks) ||
+      !Number.isFinite(totalBytes) ||
+      chunks !== pending.streamSequence ||
+      totalBytes !== pending.streamBytes
+    ) {
+      throw settleStreamError(payload.requestId, 'relay_stream_end_mismatch');
+    }
+    const settled = requireSettled(payload.requestId);
+    try {
+      await settled.streamHandlers.onEnd?.(payload);
+      settled.resolve(payload);
+    } catch (error) {
+      settled.reject(Object.assign(error, { status: error.status || HTTP_BAD_GATEWAY }));
+      throw error;
+    }
+  };
+
+  const handle = async (payload) => {
+    const pending = pendingRequests.get(payload.requestId);
+    if (!pending || !pending.streamHandlers || (payload.macConnectionEpoch && payload.macConnectionEpoch !== pending.epoch)) {
+      return;
+    }
+    if (payload.type === 'http.response.start') {
+      pending.streamStarted = true;
+      try {
+        await pending.streamHandlers.onStart?.(payload);
+      } catch (error) {
+        throw settleStreamError(payload.requestId, error);
+      }
+      return;
+    }
+    if (payload.type === 'http.response.chunk') {
+      await handleChunk(pending, payload);
+      return;
+    }
+    if (payload.type === 'http.stream.error') {
+      const settled = requireSettled(payload.requestId);
+      const streamError = streamErrorFromPayload(payload);
+      try {
+        await settled.streamHandlers.onError?.(payload);
+      } catch (error) {
+        settled.reject(streamError);
+        throw Object.assign(error, { status: error.status || streamError.status });
+      }
+      settled.reject(streamError);
+      return;
+    }
+    if (payload.type === 'http.response.end') {
+      await handleEnd(pending, payload);
+      return;
+    }
+    throw settleStreamError(payload.requestId, 'relay_stream_payload_unsupported');
+  };
 
   return { handle };
 }

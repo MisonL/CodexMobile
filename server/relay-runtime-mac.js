@@ -5,6 +5,9 @@ import {
   sendWsJson
 } from './relay-protocol.js';
 
+const MAX_HEARTBEAT_MISS_CHECK_MS = 10000;
+const STALE_SOCKET_TERMINATE_DELAY_MS = 250;
+
 export function createMacConnectionManager({
   createRequestId,
   heartbeatMs,
@@ -19,6 +22,7 @@ export function createMacConnectionManager({
   let macInfo = null;
   let macConnectionEpoch = 0;
   let heartbeatTimer = null;
+  let pinnedConnectorInstanceId = '';
 
   function getSocket() {
     return macSocket;
@@ -54,7 +58,27 @@ export function createMacConnectionManager({
     return hasActiveBrowserWork() || pendingRequests.size > 0 ? heartbeatMs : idleHeartbeatMs;
   }
 
-  function detachSocket(ws) {
+  const hasActiveRelayWork = () => {
+    return hasActiveBrowserWork() || pendingRequests.size > 0;
+  };
+
+  const closeStaleSocket = (ws, reason) => {
+    try {
+      ws.close(4000, reason);
+      if (typeof ws.terminate === 'function') {
+        const terminateTimer = setTimeout(() => {
+          if (ws.readyState !== ws.CLOSED) {
+            ws.terminate();
+          }
+        }, STALE_SOCKET_TERMINATE_DELAY_MS);
+        terminateTimer.unref?.();
+      }
+    } catch {
+      ws.terminate?.();
+    }
+  };
+
+  const detachSocket = (ws) => {
     if (ws !== macSocket) {
       return;
     }
@@ -70,9 +94,9 @@ export function createMacConnectionManager({
     clearTimeout(heartbeatTimer);
     heartbeatTimer = null;
     logRelayEvent('mac.disconnected', { macConnectionEpoch: oldEpoch });
-  }
+  };
 
-  function scheduleHeartbeat() {
+  const scheduleHeartbeat = () => {
     clearTimeout(heartbeatTimer);
     if (!isConnected()) {
       return;
@@ -87,23 +111,44 @@ export function createMacConnectionManager({
         return;
       }
       const socketAtPing = macSocket;
-      setTimeout(() => {
+      const missedTimer = setTimeout(() => {
         const socketOpen = socketAtPing === macSocket && socketAtPing.readyState === socketAtPing.OPEN;
         if (socketOpen && Number(socketAtPing.lastPongAt || 0) < sentAt) {
           metrics.macHeartbeatMissesTotal += 1;
           logRelayEvent('mac.heartbeat_missed', { macConnectionEpoch });
+          detachSocket(socketAtPing);
+          closeStaleSocket(socketAtPing, 'mac_heartbeat_missed');
         }
-      }, Math.min(heartbeatMs, 10000));
+      }, Math.min(heartbeatMs, MAX_HEARTBEAT_MISS_CHECK_MS));
+      missedTimer.unref?.();
       scheduleHeartbeat();
     }, heartbeatInterval());
-  }
+    heartbeatTimer.unref?.();
+  };
 
-  function attachSocket(ws, hello = {}) {
+  const attachSocket = (ws, hello = {}) => {
     const nextConnectorId = String(hello.connectorInstanceId || '').trim();
     if (!nextConnectorId) {
       ws.close(4002, 'invalid_connector_instance_id');
       logRelayEvent('mac.rejected', { reason: 'invalid_connector_instance_id' }, 'warn');
       return;
+    }
+    if (pinnedConnectorInstanceId && pinnedConnectorInstanceId !== nextConnectorId) {
+      if (isConnected() || hasActiveRelayWork()) {
+        metrics.multiMacRejectedTotal += 1;
+        ws.close(4009, 'ambiguous_mac_route');
+        logRelayEvent('mac.rejected', {
+          reason: 'ambiguous_mac_route',
+          pinnedConnectorInstanceId,
+          rejectedConnectorInstanceId: nextConnectorId
+        }, 'warn');
+        return;
+      }
+      logRelayEvent('mac.connector_identity_rotated', {
+        previousConnectorInstanceId: pinnedConnectorInstanceId,
+        nextConnectorInstanceId: nextConnectorId
+      });
+      pinnedConnectorInstanceId = nextConnectorId;
     }
     if (isConnected()) {
       if (macInfo?.connectorInstanceId !== nextConnectorId) {
@@ -127,6 +172,7 @@ export function createMacConnectionManager({
     }
 
     macConnectionEpoch += 1;
+    pinnedConnectorInstanceId = pinnedConnectorInstanceId || nextConnectorId;
     macSocket = ws;
     macInfo = {
       connectorInstanceId: nextConnectorId,
@@ -152,7 +198,7 @@ export function createMacConnectionManager({
       deviceName: macInfo.deviceName,
       connectorInstanceId: macInfo.connectorInstanceId
     });
-  }
+  };
 
   function recordPong(ws, sentAt) {
     ws.lastPongAt = Number(sentAt || Date.now());

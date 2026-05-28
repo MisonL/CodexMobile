@@ -10,6 +10,11 @@ export const localFixturePort = Number(process.env.CODEXMOBILE_RELAY_LOCAL_FIXTU
 export const tokenRequestLimit = Number(process.env.CODEXMOBILE_RELAY_TOKEN_REQUESTS_PER_MINUTE || 120);
 export const rootDir = fileURLToPath(new URL('..', import.meta.url));
 
+const RELAY_STARTUP_TIMEOUT_MS = 10000;
+const RELAY_CONNECT_TIMEOUT_MS = 10000;
+const RELAY_STATUS_POLL_INTERVAL_MS = 100;
+const RELAY_REQUEST_TIMEOUT_MS = 5000;
+
 export function fail(message, detail) {
   console.error(`Relay smoke failed: ${message}`);
   if (detail) {
@@ -51,6 +56,7 @@ export function spawnConnector(localUrl) {
       CODEXMOBILE_RELAY_URL: relayUrl,
       CODEXMOBILE_RELAY_SECRET: secret,
       CODEXMOBILE_RELAY_LOCAL_URL: localUrl,
+      CODEXMOBILE_RELAY_CONNECTOR_ID: 'test-mac',
       CODEXMOBILE_RELAY_DEVICE_NAME: 'fixture-mac',
       CODEXMOBILE_RELAY_HEARTBEAT_MS: '100',
       CODEXMOBILE_RELAY_IDLE_HEARTBEAT_MS: '500',
@@ -68,26 +74,26 @@ export async function waitForRelay(child) {
     output += chunk.toString();
   });
   const startedAt = Date.now();
-  while (Date.now() - startedAt < 10000) {
+  while (Date.now() - startedAt < RELAY_STARTUP_TIMEOUT_MS) {
     if (output.includes('CodexMobile relay listening')) {
       return;
     }
     if (child.exitCode !== null) {
       fail('relay exited before listening', output);
     }
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, RELAY_STATUS_POLL_INTERVAL_MS));
   }
   fail('relay did not start in time', output);
 }
 
 export async function waitForMacConnected() {
   const startedAt = Date.now();
-  while (Date.now() - startedAt < 10000) {
+  while (Date.now() - startedAt < RELAY_CONNECT_TIMEOUT_MS) {
     const result = await request('/api/status', { headers: { authorization: 'Bearer valid-token' } });
     if (result.data.macConnected && result.data.localStatus?.reachable) {
       return result.data;
     }
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, RELAY_STATUS_POLL_INTERVAL_MS));
   }
   fail('relay did not observe connector in time', await request('/api/status'));
 }
@@ -97,7 +103,7 @@ export async function request(path, options = {}) {
   try {
     response = await fetch(`${baseUrl}${path}`, {
       ...options,
-      signal: options.signal || AbortSignal.timeout(5000),
+      signal: options.signal || AbortSignal.timeout(RELAY_REQUEST_TIMEOUT_MS),
       headers: {
         ...(options.body && !(options.body instanceof Buffer) ? { 'content-type': 'application/json' } : {}),
         ...(options.headers || {})
@@ -125,16 +131,15 @@ export async function requestBuffer(path, options = {}) {
   try {
     response = await fetch(`${baseUrl}${path}`, {
       ...options,
-      signal: options.signal || AbortSignal.timeout(5000),
+      signal: options.signal || AbortSignal.timeout(RELAY_REQUEST_TIMEOUT_MS),
       headers: options.headers || {}
     });
   } catch (error) {
     throw new Error(`request ${path} failed: ${error.message}`);
   }
-  return {
-    response,
-    body: Buffer.from(await response.arrayBuffer())
-  };
+  const responseBuffer = await response.arrayBuffer();
+  const body = Buffer.from(responseBuffer);
+  return { response, body };
 }
 
 export function multipartBody(boundary, fieldName, filename, contentType, content) {

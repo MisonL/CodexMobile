@@ -13,6 +13,19 @@ import {
 } from './relay-mac-client-body.mjs';
 import { createHttpResponseSender } from './relay-mac-client-http-response.mjs';
 
+const LOCAL_AUTH_VALIDATE_TIMEOUT_MS = 10000;
+
+function isFiniteNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function optionalStreamTotal(value) {
+  if (value === undefined) {
+    return undefined;
+  }
+  return isFiniteNumber(value) ? value : null;
+}
+
 export function createHttpForwarder({
   getRelaySocket,
   getRelayEpoch,
@@ -63,7 +76,7 @@ export function createHttpForwarder({
           authorization: `Bearer ${message.token || ''}`,
           accept: 'application/json'
         },
-        signal: AbortSignal.timeout(10000)
+        signal: AbortSignal.timeout(LOCAL_AUTH_VALIDATE_TIMEOUT_MS)
       });
       const data = await response.json().catch(() => ({}));
       sendRelayMessage({
@@ -166,13 +179,15 @@ export function createHttpForwarder({
       } else {
         entry.controller.close();
       }
-    } catch {}
+    } catch (closeError) {
+      console.warn(`[relay:mac] request stream close failed requestId=${requestId} message=${closeError.message || 'unknown'}`);
+    }
   }
 
-  async function handleHttpRequestStart(message) {
+  const handleHttpRequestStart = async (message) => {
     const requestId = message.requestId;
     const { stream, controller } = createStreamController();
-    requestStreams.set(requestId, { controller, sequence: 0 });
+    requestStreams.set(requestId, { controller, sequence: 0, bytes: 0 });
     if (!(await ensureLocalReachable())) {
       closeRequestStream(requestId, new Error('mac_local_offline'));
       sendRelayMessage({
@@ -193,7 +208,7 @@ export function createHttpForwarder({
       closeRequestStream(requestId, error);
       sendStreamError(requestId, error);
     }
-  }
+  };
 
   function forwardStreamRequest(message, stream) {
     fetch(buildLocalUrl(message.path), {
@@ -217,7 +232,7 @@ export function createHttpForwarder({
     });
   }
 
-  function handleHttpRequestChunk(message) {
+  const handleHttpRequestChunk = (message) => {
     const entry = requestStreams.get(message.requestId);
     if (!entry) {
       sendStreamError(message.requestId, Object.assign(new Error('relay_stream_missing'), { status: 502 }));
@@ -235,20 +250,35 @@ export function createHttpForwarder({
         throw Object.assign(new Error('relay_stream_chunk_size_mismatch'), { status: 502 });
       }
       entry.sequence = expectedSequence;
+      entry.bytes += chunk.length;
       entry.controller.enqueue(chunk);
     } catch (error) {
       closeRequestStream(message.requestId, error);
       sendStreamError(message.requestId, error);
     }
-  }
+  };
 
-  function handleHttpRequestEnd(message) {
-    if (!requestStreams.has(message.requestId)) {
+  const handleHttpRequestEnd = (message) => {
+    const entry = requestStreams.get(message.requestId);
+    if (!entry) {
       sendStreamError(message.requestId, Object.assign(new Error('relay_stream_missing'), { status: 502 }));
       return;
     }
+    const expectedChunks = optionalStreamTotal(message.chunks);
+    const expectedTotalBytes = optionalStreamTotal(message.totalBytes);
+    if (
+      expectedChunks === null ||
+      expectedTotalBytes === null ||
+      (expectedChunks !== undefined && expectedChunks !== entry.sequence) ||
+      (expectedTotalBytes !== undefined && expectedTotalBytes !== entry.bytes)
+    ) {
+      const error = Object.assign(new Error('relay_stream_end_mismatch'), { status: 502 });
+      closeRequestStream(message.requestId, error);
+      sendStreamError(message.requestId, error);
+      return;
+    }
     closeRequestStream(message.requestId);
-  }
+  };
 
   function handleHttpRequestError(message) {
     closeRequestStream(message.requestId, new Error(message.error || 'relay_stream_aborted'));

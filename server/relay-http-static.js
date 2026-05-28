@@ -55,7 +55,13 @@ function sendStaticContent(req, res, status, content, headers, ext) {
 }
 
 export async function serveStatic(req, res, url, clientDist) {
-  let requestedPath = decodeURIComponent(url.pathname);
+  let requestedPath = '';
+  try {
+    requestedPath = decodeURIComponent(url.pathname);
+  } catch {
+    sendText(res, 400, 'Bad request');
+    return;
+  }
   if (requestedPath === '/') {
     requestedPath = '/index.html';
   }

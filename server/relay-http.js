@@ -62,7 +62,7 @@ export function createRelayHttpHandler({
     sendJson(res, status, { error: message });
   }
 
-  function consumeRateLimit(req, res, scope, token = '') {
+  const consumeRateLimit = (req, res, scope, token = '') => {
     if (!rateLimiter) {
       return true;
     }
@@ -77,7 +77,12 @@ export function createRelayHttpHandler({
       return false;
     }
     return true;
-  }
+  };
+
+  const consumeUncachedTokenValidationLimit = (req, res) => {
+    // Use client IP only here because this token has not been authenticated yet.
+    return consumeRateLimit(req, res, 'token');
+  };
 
   function consumeTokenRequestLimit(res, token) {
     const result = consumeBrowserTokenRequest(rateLimiter, token, {
@@ -95,7 +100,7 @@ export function createRelayHttpHandler({
 
   async function requireBrowserAuth(req, res) {
     const token = browserTokenFromHeaders(req.headers);
-    if (token && !runtime.hasCachedBrowserToken(token) && !consumeRateLimit(req, res, 'token', token)) {
+    if (token && !runtime.hasCachedBrowserToken(token) && !consumeUncachedTokenValidationLimit(req, res)) {
       return '';
     }
     try {
@@ -213,16 +218,18 @@ export function createRelayHttpHandler({
     await forwardHttpRequest(req, res, url, { authRequired: true });
   }
 
-  async function handleStatus(req, res) {
+  const handleStatus = async (req, res) => {
     const token = browserTokenFromHeaders(req.headers);
     let authenticated = false;
     let authValidationDeferred = '';
     if (token) {
+      if (!runtime.hasCachedBrowserToken(token) && !consumeUncachedTokenValidationLimit(req, res)) {
+        return;
+      }
       try {
         authenticated = await runtime.validateBrowserToken(token);
       } catch (error) {
-        if ((error.status || 0) >= 500) {
-          authenticated = true;
+        if ((error.status || 503) >= 500) {
           authValidationDeferred = error.message || 'mac_offline';
         }
       }
@@ -231,7 +238,7 @@ export function createRelayHttpHandler({
       ...runtime.currentRelayStatus(authenticated),
       ...(authValidationDeferred ? { authValidationDeferred } : {})
     });
-  }
+  };
 
   return async function requestHandler(req, res) {
     const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);

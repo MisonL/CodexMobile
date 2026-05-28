@@ -1,8 +1,9 @@
 import http from 'node:http';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { WebSocketServer } from 'ws';
 import {
+  DEFAULT_RELAY_WS_MAX_PAYLOAD_BYTES,
   DEFAULT_RELAY_HEARTBEAT_MS,
   DEFAULT_RELAY_IDLE_HEARTBEAT_MS,
   DEFAULT_RELAY_REQUEST_TIMEOUT_MS,
@@ -60,6 +61,9 @@ function assertRelayConfig() {
 }
 
 function writeUpgradeStatus(socket, status, reason, headers = {}) {
+  if (socket.destroyed) {
+    return;
+  }
   const headerLines = Object.entries(headers)
     .filter(([, value]) => value !== undefined && value !== null && value !== '')
     .map(([name, value]) => `${name}: ${value}`);
@@ -73,7 +77,7 @@ function writeUpgradeStatus(socket, status, reason, headers = {}) {
   socket.destroy();
 }
 
-function createUpgradeHandler(runtime, macWss, browserWss, realtimeWss, rateLimiter) {
+export function createUpgradeHandler(runtime, macWss, browserWss, realtimeWss, rateLimiter) {
   return function handleUpgrade(req, socket, head) {
     const url = new URL(req.url || '/', `http://${req.headers.host || `127.0.0.1:${PORT}`}`);
     if (url.pathname === '/relay/mac') {
@@ -115,12 +119,18 @@ function handleMacUpgrade(req, socket, head, macWss, runtime, rateLimiter) {
 
 function handleBrowserUpgrade(url, req, socket, head, browserWss, runtime, rateLimiter) {
   const token = url.searchParams.get('token') || '';
+  if (!consumeUpgradeClientLimit(runtime, rateLimiter, req, socket)) {
+    return;
+  }
+  if (!consumeBrowserUpgradeLimit(runtime, rateLimiter, token, socket)) {
+    return;
+  }
   runtime.validateBrowserToken(token).then((valid) => {
     if (!valid) {
       writeUpgradeStatus(socket, 401, 'Unauthorized');
       return;
     }
-    if (!consumeBrowserUpgradeLimit(runtime, rateLimiter, token, socket)) {
+    if (socket.destroyed) {
       return;
     }
     browserWss.handleUpgrade(req, socket, head, (ws) => runtime.acceptBrowserSocket(ws));
@@ -131,18 +141,46 @@ function handleBrowserUpgrade(url, req, socket, head, browserWss, runtime, rateL
 
 function handleRealtimeUpgrade(url, req, socket, head, realtimeWss, runtime, rateLimiter) {
   const token = url.searchParams.get('token') || '';
+  if (!consumeUpgradeClientLimit(runtime, rateLimiter, req, socket)) {
+    return;
+  }
+  if (!consumeBrowserUpgradeLimit(runtime, rateLimiter, token, socket)) {
+    return;
+  }
   runtime.validateBrowserToken(token).then((valid) => {
     if (!valid) {
       writeUpgradeStatus(socket, 401, 'Unauthorized');
       return;
     }
-    if (!consumeBrowserUpgradeLimit(runtime, rateLimiter, token, socket)) {
+    if (socket.destroyed) {
       return;
     }
     realtimeWss.handleUpgrade(req, socket, head, (ws) => runtime.acceptRealtimeSocket(ws, token));
   }).catch((error) => {
     writeUpgradeStatus(socket, error.status || 503, 'Service Unavailable');
   });
+}
+
+function consumeUpgradeClientLimit(runtime, rateLimiter, req, socket) {
+  if (!rateLimiter) {
+    return true;
+  }
+  const clientIp = clientIpFromRequest(req, TRUST_PROXY);
+  const result = rateLimiter.consume(`browser-upgrade:${clientIp}`, {
+    limit: BROWSER_TOKEN_REQUESTS_PER_MINUTE,
+    windowMs: BROWSER_TOKEN_REQUEST_WINDOW_MS
+  });
+  if (result.allowed) {
+    return true;
+  }
+  runtime.metrics.rateLimitedTotal += 1;
+  logRelayEvent('relay.rate_limited', {
+    reason: 'relay_browser_upgrade_limit_exceeded',
+    retryAfter: result.retryAfter,
+    transport: 'websocket'
+  });
+  writeUpgradeStatus(socket, 429, 'Too Many Requests', { 'Retry-After': result.retryAfter });
+  return false;
 }
 
 function consumeBrowserUpgradeLimit(runtime, rateLimiter, token, socket) {
@@ -192,9 +230,9 @@ function main() {
     browserTokenRequestWindowMs: BROWSER_TOKEN_REQUEST_WINDOW_MS
   });
   const server = http.createServer(requestHandler);
-  const macWss = new WebSocketServer({ noServer: true });
-  const browserWss = new WebSocketServer({ noServer: true });
-  const realtimeWss = new WebSocketServer({ noServer: true });
+  const macWss = new WebSocketServer({ noServer: true, maxPayload: DEFAULT_RELAY_WS_MAX_PAYLOAD_BYTES });
+  const browserWss = new WebSocketServer({ noServer: true, maxPayload: DEFAULT_RELAY_WS_MAX_PAYLOAD_BYTES });
+  const realtimeWss = new WebSocketServer({ noServer: true, maxPayload: DEFAULT_RELAY_WS_MAX_PAYLOAD_BYTES });
 
   server.on('upgrade', createUpgradeHandler(runtime, macWss, browserWss, realtimeWss, rateLimiter));
   server.listen(PORT, HOST, () => {
@@ -203,4 +241,6 @@ function main() {
   });
 }
 
-main();
+if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+  main();
+}
