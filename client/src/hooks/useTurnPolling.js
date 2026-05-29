@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { apiFetch } from '../api.js';
 import { hasAssistantResultForTurn, upsertSessionInProject } from '../app-core-utils.js';
 import { upsertAssistantMessage, upsertStatusMessage } from '../app-message-state.js';
+import { mergeCompletedTurnMessages } from './turn-message-refresh.js';
 
 const TURN_POLL_INTERVAL_MS = 1400;
 const TURN_POLL_TIMEOUT_MS = 30 * 60 * 1000;
@@ -106,7 +107,11 @@ export function useTurnPolling(app, runRegistry, turnRefresh) {
         allowLatestAssistantFallback: !messageId
       })
     ) {
-      app.setMessages(data.messages);
+      mergeCompletedTurnMessages({
+        app,
+        activeRuns: [{ turnId, sessionId: realSessionId, previousSessionId }],
+        serverMessages: data.messages
+      });
       return true;
     }
     return false;
