@@ -1,14 +1,20 @@
 import { useRef, useState } from 'react';
 import { getToken, readStoredValue } from '../api.js';
 import { DEFAULT_STATUS } from '../relay-status.js';
-import { DEFAULT_REASONING_EFFORT, REASONING_DEFAULT_VERSION, THEME_KEY } from '../app-core-utils.js';
+import {
+  DEFAULT_REASONING_EFFORT,
+  REASONING_DEFAULT_VERSION,
+  REASONING_DEFAULT_VERSION_KEY,
+  REASONING_EFFORT_KEY,
+  THEME_KEY
+} from '../app-core-utils.js';
 
 function initialReasoningEffort() {
-  const defaultVersion = readStoredValue('codexmobile.reasoningDefaultVersion');
+  const defaultVersion = readStoredValue(REASONING_DEFAULT_VERSION_KEY);
   if (defaultVersion !== REASONING_DEFAULT_VERSION) {
     return DEFAULT_REASONING_EFFORT;
   }
-  return readStoredValue('codexmobile.reasoningEffort', DEFAULT_REASONING_EFFORT);
+  return readStoredValue(REASONING_EFFORT_KEY, DEFAULT_REASONING_EFFORT);
 }
 
 export function useAppState() {

@@ -3,7 +3,13 @@ import { readStoredValue, writeStoredValue } from './api.js';
 import { DEFAULT_STATUS, relayDisabledReason } from './relay-status.js';
 import { PairingScreen } from './PairingScreen.jsx';
 import { TopBar } from './TopBar.jsx';
-import { DEFAULT_REASONING_EFFORT, REASONING_DEFAULT_VERSION, THEME_KEY } from './app-core-utils.js';
+import {
+  DEFAULT_REASONING_EFFORT,
+  REASONING_DEFAULT_VERSION,
+  REASONING_DEFAULT_VERSION_KEY,
+  REASONING_EFFORT_KEY,
+  THEME_KEY
+} from './app-core-utils.js';
 import { useAppWebSocket } from './hooks/useAppWebSocket.js';
 import { useAppState } from './hooks/useAppState.js';
 import { useChatActions } from './hooks/useChatActions.js';
@@ -115,16 +121,16 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
-    if (readStoredValue('codexmobile.reasoningDefaultVersion') !== REASONING_DEFAULT_VERSION) {
-      writeStoredValue('codexmobile.reasoningDefaultVersion', REASONING_DEFAULT_VERSION);
-      writeStoredValue('codexmobile.reasoningEffort', DEFAULT_REASONING_EFFORT);
+    if (readStoredValue(REASONING_DEFAULT_VERSION_KEY) !== REASONING_DEFAULT_VERSION) {
+      writeStoredValue(REASONING_DEFAULT_VERSION_KEY, REASONING_DEFAULT_VERSION);
+      writeStoredValue(REASONING_EFFORT_KEY, DEFAULT_REASONING_EFFORT);
       setSelectedReasoningEffort(DEFAULT_REASONING_EFFORT);
     }
   }, [setSelectedReasoningEffort]);
 
   useEffect(() => {
     if (selectedReasoningEffort) {
-      writeStoredValue('codexmobile.reasoningEffort', selectedReasoningEffort);
+      writeStoredValue(REASONING_EFFORT_KEY, selectedReasoningEffort);
     }
   }, [selectedReasoningEffort]);
 
@@ -135,7 +141,7 @@ export default function App() {
   }, [selectedModel, status.model]);
 
   useEffect(() => {
-    const saved = readStoredValue('codexmobile.reasoningEffort');
+    const saved = readStoredValue(REASONING_EFFORT_KEY);
     if (!saved && status.reasoningEffort && !selectedReasoningEffort) {
       setSelectedReasoningEffort(status.reasoningEffort);
     }

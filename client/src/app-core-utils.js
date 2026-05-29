@@ -7,6 +7,8 @@ export function retryAfterLabel(lock, nowMs = Date.now()) {
 
 export const DEFAULT_REASONING_EFFORT = 'xhigh';
 export const REASONING_DEFAULT_VERSION = 'xhigh-v1';
+export const REASONING_DEFAULT_VERSION_KEY = 'codexmobile.reasoningDefaultVersion';
+export const REASONING_EFFORT_KEY = 'codexmobile.reasoningEffort';
 export const THEME_KEY = 'codexmobile.theme';
 export const VOICE_MAX_RECORDING_MS = 90 * 1000;
 export const VOICE_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
