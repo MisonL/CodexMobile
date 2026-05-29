@@ -1,8 +1,10 @@
 import crypto from 'node:crypto';
 import { refreshCodexCache } from './codex-data.js';
+import { renameSessionNameIndexRow } from './codex-data-parser.js';
 import { getActiveRuns, runCodexTurn } from './codex-runner.js';
 import { registerMobileSession } from './mobile-session-index.js';
 import { broadcast } from './app-sockets.js';
+import { syncCodexAppThreadMetadata } from './codex-app-state-sync.js';
 
 
 export const recentTurns = new Map();
@@ -244,13 +246,32 @@ export function runNextQueuedChat(queueKey) {
     if (finalSessionId) {
       state.sessionId = finalSessionId;
       rememberConversationAlias(queueKey, finalSessionId);
-      await registerMobileSession({
+      const turn = recentTurns.get(job.turnId) || {};
+      const updatedAt = turn.completedAt || new Date().toISOString();
+      const title = job.displayMessage.slice(0, 52);
+      const mobileSession = await registerMobileSession({
         id: finalSessionId,
         projectPath: job.project.path,
-        title: job.displayMessage.slice(0, 52),
+        title,
         summary: job.displayMessage,
-        updatedAt: new Date().toISOString()
+        updatedAt
       });
+      try {
+        await renameSessionNameIndexRow(finalSessionId, mobileSession?.title || title, updatedAt, { refreshUpdatedAt: true });
+      } catch (error) {
+        console.warn(`[sessions] Failed to sync Codex session index session=${finalSessionId}: ${error.message}`);
+      }
+      try {
+        await syncCodexAppThreadMetadata({
+          threadId: finalSessionId,
+          title: mobileSession?.title || title,
+          preview: turn.assistantPreview || job.displayMessage,
+          updatedAt,
+          cwd: job.project.path
+        });
+      } catch (error) {
+        console.warn(`[sessions] Failed to sync Codex App state session=${finalSessionId}: ${error.message}`);
+      }
     }
     rememberTurn(job.turnId, {
       projectId: job.project.id,

@@ -57,9 +57,12 @@ export async function readSessionNameIndex() {
   return index;
 }
 
-export async function renameSessionNameIndexRow(sessionId, title, updatedAt) {
+export async function renameSessionNameIndexRow(sessionId, title, updatedAt, options = {}) {
+  const indexPath = options.indexPath || CODEX_SESSION_INDEX;
+  const shouldRefreshUpdatedAt = Boolean(options.refreshUpdatedAt);
+  const nextUpdatedAt = updatedAt || new Date().toISOString();
   try {
-    const raw = await fs.readFile(CODEX_SESSION_INDEX, 'utf8');
+    const raw = await fs.readFile(indexPath, 'utf8');
     const nextLines = [];
     let changed = false;
     for (const line of raw.split(/\r?\n/)) {
@@ -70,7 +73,7 @@ export async function renameSessionNameIndexRow(sessionId, title, updatedAt) {
         const item = JSON.parse(line);
         if (item?.id === sessionId) {
           item.thread_name = title;
-          item.updated_at = item.updated_at || updatedAt || new Date().toISOString();
+          item.updated_at = shouldRefreshUpdatedAt ? nextUpdatedAt : item.updated_at || nextUpdatedAt;
           nextLines.push(JSON.stringify(item));
           changed = true;
           continue;
@@ -84,19 +87,19 @@ export async function renameSessionNameIndexRow(sessionId, title, updatedAt) {
       nextLines.push(JSON.stringify({
         id: sessionId,
         thread_name: title,
-        updated_at: updatedAt || new Date().toISOString()
+        updated_at: nextUpdatedAt
       }));
     }
-    await fs.writeFile(CODEX_SESSION_INDEX, `${nextLines.join('\n')}\n`, 'utf8');
+    await fs.writeFile(indexPath, `${nextLines.join('\n')}\n`, 'utf8');
     return true;
   } catch (error) {
     if (error.code === 'ENOENT') {
       await fs.writeFile(
-        CODEX_SESSION_INDEX,
+        indexPath,
         `${JSON.stringify({
           id: sessionId,
           thread_name: title,
-          updated_at: updatedAt || new Date().toISOString()
+          updated_at: nextUpdatedAt
         })}\n`,
         'utf8'
       );
@@ -243,7 +246,12 @@ async function readSessionMetadata(options) {
         messageCount += 1;
         lastUserMessage = sanitizeVisibleUserMessage(entry.payload.message);
       }
-      if (entry.type === 'response_item' && entry.payload?.type === 'message' && entry.payload.role === 'assistant') {
+      if (
+        entry.type === 'response_item' &&
+        entry.payload?.type === 'message' &&
+        entry.payload.role === 'assistant' &&
+        entry.payload.phase !== 'commentary'
+      ) {
         messageCount += 1;
       }
     } catch {
