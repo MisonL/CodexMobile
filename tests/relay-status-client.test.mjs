@@ -11,6 +11,7 @@ import {
   clearToken,
   getToken,
   isPairingRequiredError,
+  readStoredValue,
   setToken
 } from '../client/src/api.js';
 import { hasAssistantResultForTurn, hasVisibleAssistantForTurn } from '../client/src/app-core-utils.js';
@@ -100,6 +101,12 @@ test('pairing fails visibly when browser storage cannot persist the token', asyn
       /无法保存配对凭据/
     );
     assert.equal(getToken(), '');
+  });
+});
+
+test('non-critical preferences fall back when browser storage is unavailable', async () => {
+  await withLocalStorage(createMemoryStorage({ failWrites: true }), async () => {
+    assert.equal(readStoredValue('codexmobile.theme', 'light'), 'light');
   });
 });
 

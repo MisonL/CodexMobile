@@ -29,34 +29,34 @@ function browserLocalStorage() {
   return typeof localStorage === 'undefined' ? null : localStorage;
 }
 
-function readTokenFromStorage() {
+export function readStoredValue(key, fallback = '') {
   try {
-    return browserLocalStorage()?.getItem(TOKEN_KEY) || '';
+    return browserLocalStorage()?.getItem(key) ?? fallback;
   } catch {
-    return '';
+    return fallback;
   }
 }
 
-function writeTokenToStorage(token) {
+export function writeStoredValue(key, value) {
   const storage = browserLocalStorage();
   if (!storage) {
     return false;
   }
   try {
-    storage.setItem(TOKEN_KEY, token);
+    storage.setItem(key, value);
   } catch {
     return false;
   }
   return true;
 }
 
-function removeTokenFromStorage() {
+export function removeStoredValue(key) {
   const storage = browserLocalStorage();
   if (!storage) {
     return false;
   }
   try {
-    storage.removeItem(TOKEN_KEY);
+    storage.removeItem(key);
   } catch {
     return false;
   }
@@ -88,17 +88,17 @@ function errorMessageFor(data, fallback) {
 }
 
 export function getToken() {
-  return readTokenFromStorage();
+  return readStoredValue(TOKEN_KEY);
 }
 
 export function setToken(token) {
-  if (!writeTokenToStorage(token)) {
+  if (!writeStoredValue(TOKEN_KEY, token)) {
     throw new Error('无法保存配对凭据，请检查浏览器存储权限。');
   }
 }
 
 export function clearToken() {
-  return removeTokenFromStorage();
+  return removeStoredValue(TOKEN_KEY);
 }
 
 export async function requestPersistentStorage() {

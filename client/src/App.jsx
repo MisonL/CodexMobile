@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { readStoredValue, writeStoredValue } from './api.js';
 import { DEFAULT_STATUS, relayDisabledReason } from './relay-status.js';
 import { PairingScreen } from './PairingScreen.jsx';
 import { TopBar } from './TopBar.jsx';
@@ -105,7 +106,7 @@ export default function App() {
 
 
   useEffect(() => {
-    localStorage.setItem(THEME_KEY, theme);
+    writeStoredValue(THEME_KEY, theme);
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
     document
@@ -115,7 +116,7 @@ export default function App() {
 
   useEffect(() => {
     if (selectedReasoningEffort) {
-      localStorage.setItem('codexmobile.reasoningEffort', selectedReasoningEffort);
+      writeStoredValue('codexmobile.reasoningEffort', selectedReasoningEffort);
     }
   }, [selectedReasoningEffort]);
 
@@ -126,7 +127,7 @@ export default function App() {
   }, [selectedModel, status.model]);
 
   useEffect(() => {
-    const saved = localStorage.getItem('codexmobile.reasoningEffort');
+    const saved = readStoredValue('codexmobile.reasoningEffort');
     if (!saved && status.reasoningEffort && !selectedReasoningEffort) {
       setSelectedReasoningEffort(status.reasoningEffort);
     }
