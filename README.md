@@ -88,6 +88,7 @@ http://<电脑的私网 IP>:3321
 本仓库内可直接执行：
 
 ```bash
+node bin/codexmobile.mjs setup
 node bin/codexmobile.mjs doctor --json
 node bin/codexmobile.mjs start --json
 node bin/codexmobile.mjs status --json
@@ -104,6 +105,7 @@ node bin/codexmobile.mjs relay-config --json
 发布为 npm 包后，等价入口为：
 
 ```bash
+npx codexmobile setup
 npx codexmobile doctor --json
 npx codexmobile start --json
 npx codexmobile status --json
@@ -117,7 +119,19 @@ npx codexmobile uninstall --json
 npx codexmobile relay-config --json
 ```
 
-`doctor` 会检查 Node.js 版本、Codex 配置路径、默认 HTTP/HTTPS 端口、Tailscale 命令可用性和本机私网地址。`start` 会用后台进程运行 `codexmobile serve`，日志写入用户级日志目录；若旧 PID 已被其他进程复用或 state 结构不完整，`start` 会清理 stale state 后重新启动。`stop` 只停止 CLI 状态文件记录且命令行匹配的 CodexMobile 进程；`logs` 会读取最近日志并脱敏 relay secret、Bearer token 和 URL token；`status` 会返回用户级数据目录、日志目录、本地 server 与 relay connector 两个 LaunchAgent 的路径、plist 是否存在、`launchctl` 是否已加载和脱敏后的 relay 配置。`install --dry-run` 只输出将要创建的目录、plist 内容、将要执行的 `launchctl` 命令和错误处理说明，其中 `bootout` 仅允许服务未加载或不存在类错误失败；`install` 会写入本地 server plist、执行 `plutil -lint`，再以幂等方式 `bootout` 旧用户服务、`bootstrap` 并 `kickstart`。若已保存有效 relay 配置，`install` 与 `enable` 会同时处理 relay connector；否则 JSON 输出会标记 `relaySkipped`，不会启动未配置的 connector。`install` 或 `enable` 若在部分服务加载后失败，会回收已加载服务；`--json` 错误输出会包含 cleanup 结果。`enable` 同样会幂等重载并 kickstart 当前用户 LaunchAgent，`disable` 调用 `launchctl bootout`。`uninstall` 默认只移除 plist 并保留用户数据目录；删除用户数据必须显式同时传入 `--remove-data --confirm-remove-data`。
+推荐首次安装使用交互式 `setup`。它会询问 Space URL 与 relay secret，保存 Mac connector 配置，接管占用 `3321` 的旧 CodexMobile 手动进程，写入并启动本地 server 与 relay connector 两个 LaunchAgent。非交互环境可使用：
+
+```bash
+node bin/codexmobile.mjs setup \
+  --space-url https://misonl-codexmobile-relay.hf.space \
+  --secret <relay-secret> \
+  --yes \
+  --json
+```
+
+`setup --dry-run --json` 只预览计划，不写配置、不停止进程、不安装服务。`setup --no-relay` 会清除已保存的 relay 配置，并只保留本地 server LaunchAgent。完成 `setup` 后，日常只需要 `status`、`restart`、`logs` 和 `uninstall`；`start`、`stop`、`restart` 在检测到 LaunchAgent 已安装时会走服务管理路径，避免再启动第二套手动后台进程。
+
+`doctor` 会检查 Node.js 版本、Codex 配置路径、默认 HTTP/HTTPS 端口、Tailscale 命令可用性和本机私网地址。`start` 在未安装 LaunchAgent 时会用后台进程运行 `codexmobile serve`，日志写入用户级日志目录；若旧 PID 已被其他进程复用或 state 结构不完整，`start` 会清理 stale state 后重新启动。`stop` 在未安装 LaunchAgent 时只停止 CLI 状态文件记录且命令行匹配的 CodexMobile 进程；`logs` 会读取最近日志并脱敏 relay secret、Bearer token 和 URL token；`status` 会返回用户级数据目录、日志目录、本地 server 与 relay connector 两个 LaunchAgent 的路径、plist 是否存在、`launchctl` 是否已加载和脱敏后的 relay 配置。`install --dry-run` 只输出将要创建的目录、plist 内容、将要执行的 `launchctl` 命令和错误处理说明，其中 `bootout` 仅允许服务未加载或不存在类错误失败；`install` 会写入本地 server plist、执行 `plutil -lint`，再以幂等方式 `bootout` 旧用户服务、`bootstrap` 并 `kickstart`。若已保存有效 relay 配置，`install` 与 `enable` 会同时处理 relay connector；否则 JSON 输出会标记 `relaySkipped`，不会启动未配置的 connector。`install` 或 `enable` 若在部分服务加载后失败，会回收已加载服务；`--json` 错误输出会包含 cleanup 结果。`enable` 同样会幂等重载并 kickstart 当前用户 LaunchAgent，`disable` 调用 `launchctl bootout`。`uninstall` 默认只移除 plist 并保留用户数据目录；删除用户数据必须显式同时传入 `--remove-data --confirm-remove-data`。
 
 保存 Mac connector 的 relay 配置：
 

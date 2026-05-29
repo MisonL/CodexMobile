@@ -62,6 +62,16 @@ function launchAgentServices(paths, relayPath, relayConfigured) {
   return services;
 }
 
+async function startConfiguredLaunchAgentServices(execFile, paths, relayPath, relayConfigured) {
+  if (!relayConfigured) {
+    await bootoutLaunchAgentLabel(execFile, RELAY_LAUNCH_AGENT_LABEL);
+  }
+  await startLaunchAgentServices(
+    execFile,
+    launchAgentServices(paths, relayPath, relayConfigured)
+  );
+}
+
 async function writeLaunchAgentItem(fileSystem, execFile, item) {
   await fileSystem.writeFile(item.path, item.content, { encoding: 'utf8', mode: 0o644 });
   await execFilePromise(execFile, 'plutil', ['-lint', item.path]);
@@ -71,6 +81,9 @@ async function writeLaunchAgentPlan({ fileSystem, execFile, plan }) {
   await Promise.all(plan.wouldCreateDirs.map((dir) => fileSystem.mkdir(dir, { recursive: true })));
   for (const item of plan.wouldWrite) {
     await writeLaunchAgentItem(fileSystem, execFile, item);
+  }
+  if (!plan.relayConfigured) {
+    await fileSystem.rm(plan.relayLaunchAgentPath, { force: true });
   }
   return plan.wouldWrite.map((item) => item.path);
 }
@@ -162,10 +175,7 @@ export async function installMacLaunchAgent(options = {}) {
   });
 
   await writeLaunchAgentPlan({ fileSystem, execFile, plan });
-  await startLaunchAgentServices(
-    execFile,
-    launchAgentServices(paths, plan.relayLaunchAgentPath, plan.relayConfigured)
-  );
+  await startConfiguredLaunchAgentServices(execFile, paths, plan.relayLaunchAgentPath, plan.relayConfigured);
 
   return {
     command: 'install',
@@ -200,7 +210,7 @@ export async function enableMacLaunchAgent(options = {}) {
     plan
   });
 
-  await startLaunchAgentServices(execFile, launchAgentServices(paths, plan.relayLaunchAgentPath, relayConfigured));
+  await startConfiguredLaunchAgentServices(execFile, paths, plan.relayLaunchAgentPath, relayConfigured);
   return {
     command: 'enable',
     ok: true,

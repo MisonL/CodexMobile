@@ -125,10 +125,31 @@ test('installMacLaunchAgent skips relay connector until relay config is saved', 
     calls.map((call) => [call.command, ...call.args]),
     [
       ['plutil', '-lint', paths.launchAgentPath],
+      ['launchctl', 'bootout', `gui/${process.getuid()}/com.codexmobile.relay-connector`],
       ['launchctl', 'bootout', `gui/${process.getuid()}/com.codexmobile.agent`],
       ['launchctl', 'bootstrap', `gui/${process.getuid()}`, paths.launchAgentPath],
       ['launchctl', 'kickstart', '-k', `gui/${process.getuid()}/com.codexmobile.agent`]
     ]
+  );
+});
+
+test('installMacLaunchAgent removes stale relay plist when relay is skipped', async () => {
+  const { paths } = await makeTempPaths();
+  const calls = [];
+  await fs.mkdir(path.dirname(paths.relayLaunchAgentPath), { recursive: true });
+  await fs.writeFile(paths.relayLaunchAgentPath, '<plist/>', 'utf8');
+
+  const result = await installMacLaunchAgent({
+    paths,
+    nodePath: '/usr/local/bin/node',
+    cliPath: '/repo/bin/codexmobile.mjs',
+    execFile: fakeExecFile(calls)
+  });
+
+  assert.equal(result.relayInstalled, false);
+  await assert.rejects(
+    fs.stat(paths.relayLaunchAgentPath),
+    (error) => error.code === 'ENOENT'
   );
 });
 

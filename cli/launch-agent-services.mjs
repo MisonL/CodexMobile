@@ -2,12 +2,28 @@ import {
   currentUserDomain,
   isAlreadyBootstrapped,
   isNotBootstrapped,
+  launchctlErrorText,
   serviceTarget
 } from './launchctl-policy.mjs';
 
-const COMMAND_TIMEOUT_MS = 5000;
+const COMMAND_TIMEOUT_MS = 30000;
+const TRANSIENT_RETRY_DELAY_MS = 500;
+const TRANSIENT_RETRIES = 5;
 
-export function execFilePromise(execFile, command, args) {
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientLaunchctlError(error) {
+  if (isAlreadyBootstrapped(error)) {
+    return false;
+  }
+  const text = launchctlErrorText(error);
+  return error?.code === 37 ||
+    /bootstrap failed:\s*5:\s*input\/output error/i.test(text);
+}
+
+function runExecFile(execFile, command, args) {
   return new Promise((resolve, reject) => {
     execFile(command, args, { timeout: COMMAND_TIMEOUT_MS }, (error, stdout, stderr) => {
       if (error) {
@@ -19,6 +35,21 @@ export function execFilePromise(execFile, command, args) {
       resolve({ stdout: String(stdout || ''), stderr: String(stderr || '') });
     });
   });
+}
+
+export async function execFilePromise(execFile, command, args, options = {}) {
+  const retries = Number(options.retries ?? 0);
+  const delayMs = Number(options.delayMs ?? TRANSIENT_RETRY_DELAY_MS);
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await runExecFile(execFile, command, args);
+    } catch (error) {
+      if (attempt >= retries || !isTransientLaunchctlError(error)) {
+        throw error;
+      }
+      await sleep(delayMs);
+    }
+  }
 }
 
 export async function bootoutLaunchAgentLabel(execFile, label) {
@@ -35,7 +66,12 @@ export async function bootoutLaunchAgentLabel(execFile, label) {
 
 async function bootstrapLaunchAgent(execFile, launchAgentPath) {
   try {
-    await execFilePromise(execFile, 'launchctl', ['bootstrap', currentUserDomain(), launchAgentPath]);
+    await execFilePromise(
+      execFile,
+      'launchctl',
+      ['bootstrap', currentUserDomain(), launchAgentPath],
+      { retries: TRANSIENT_RETRIES }
+    );
   } catch (error) {
     if (!isAlreadyBootstrapped(error)) {
       throw error;
@@ -67,7 +103,12 @@ export async function startLaunchAgentServices(execFile, services) {
       await bootoutLaunchAgentLabel(execFile, item.label);
       await bootstrapLaunchAgent(execFile, item.path);
       started.push(item.label);
-      await execFilePromise(execFile, 'launchctl', ['kickstart', '-k', serviceTarget(item.label)]);
+      await execFilePromise(
+        execFile,
+        'launchctl',
+        ['kickstart', '-k', serviceTarget(item.label)],
+        { retries: TRANSIENT_RETRIES }
+      );
     }
   } catch (error) {
     error.cleanup = await cleanupLaunchAgentServices(execFile, started);

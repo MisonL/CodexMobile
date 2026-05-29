@@ -32,9 +32,7 @@ export function launchctlErrorText(error) {
 export function isAlreadyBootstrapped(error) {
   const text = launchctlErrorText(error);
   return /already loaded|already bootstrapped|service already loaded/i.test(text) ||
-    /operation already in progress/i.test(text) ||
-    /bootstrap failed:\s*5:\s*input\/output error/i.test(text) ||
-    (error?.code === 5 && /bootstrap failed|input\/output error/i.test(text));
+    /operation already in progress/i.test(text);
 }
 
 export function isNotBootstrapped(error) {

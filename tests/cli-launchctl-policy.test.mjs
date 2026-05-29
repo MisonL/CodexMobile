@@ -8,13 +8,12 @@ import {
 
 test('isAlreadyBootstrapped matches known duplicate bootstrap messages', () => {
   assert.equal(isAlreadyBootstrapped({ stderr: 'service already loaded' }), true);
-  assert.equal(isAlreadyBootstrapped({ stderr: 'Bootstrap failed: 5: Input/output error' }), true);
   assert.equal(isAlreadyBootstrapped({ stderr: 'bootstrap failed: 37: operation already in progress' }), true);
-  assert.equal(isAlreadyBootstrapped({ code: 5, message: 'Bootstrap failed: 5: Input/output error' }), true);
 });
 
 test('isAlreadyBootstrapped does not hide unrelated launchctl failures', () => {
   assert.equal(isAlreadyBootstrapped({ code: 5, stderr: 'permission denied' }), false);
+  assert.equal(isAlreadyBootstrapped({ stderr: 'Bootstrap failed: 5: Input/output error' }), false);
   assert.equal(isAlreadyBootstrapped({ stderr: 'syntax error in plist' }), false);
 });
 

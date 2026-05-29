@@ -142,6 +142,23 @@ export async function saveRelayConfig(options = {}) {
   }
 }
 
+export async function clearRelayConfig(options = {}) {
+  const paths = options.paths;
+  if (!paths) {
+    throw new Error('paths are required.');
+  }
+  const fileSystem = options.fs || fs;
+  await fileSystem.rm(paths.relayConfigPath, { force: true });
+  return {
+    command: 'relay-config',
+    ok: true,
+    configured: false,
+    cleared: true,
+    path: paths.relayConfigPath,
+    config: null
+  };
+}
+
 export async function readRelayConfig(options = {}) {
   const paths = options.paths;
   if (!paths) {

@@ -1,35 +1,34 @@
-import { fileURLToPath } from 'node:url';
-
 import * as defaultLaunchAgent from './launch-agent.mjs';
+import { DEFAULT_CLI_PATH, DEFAULT_RELAY_CLIENT_PATH } from './command-paths.mjs';
+import {
+  runDisable,
+  runEnable,
+  runInstall,
+  runLogs,
+  runRelayConfig,
+  runRestart,
+  runStart,
+  runStop,
+  runUninstall
+} from './lifecycle-commands.mjs';
 import { resolveRuntimePaths } from './paths.mjs';
-import * as defaultProcessManager from './process-manager.mjs';
-import { readRelayLaunchAgentState, readRelayConfig, saveRelayConfig } from './relay-config.mjs';
+import { runSetup, setupValueFlags } from './setup.mjs';
 import { collectDoctorReport, collectStatusReport } from './status.mjs';
-
-const DEFAULT_CLI_PATH = fileURLToPath(new URL('../bin/codexmobile.mjs', import.meta.url));
-const DEFAULT_RELAY_CLIENT_PATH = fileURLToPath(new URL('../scripts/relay-mac-client.mjs', import.meta.url));
 
 function hasFlag(args, flag) {
   return args.includes(flag);
 }
 
-function flagValue(args, flag) {
-  const index = args.indexOf(flag);
-  if (index < 0) {
-    return '';
-  }
-  return args[index + 1] || '';
-}
-
 function stripFlags(args) {
   const commands = [];
+  const valueFlags = new Set(['--url', '--secret', '--local-url', ...setupValueFlags()]);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (!arg.startsWith('--')) {
       commands.push(arg);
       continue;
     }
-    if (['--url', '--secret', '--local-url'].includes(arg)) {
+    if (valueFlags.has(arg)) {
       index += 1;
     }
   }
@@ -49,6 +48,10 @@ function writeError(options, text) {
 function emit(result, options, json) {
   if (json) {
     writeOutput(options, `${JSON.stringify(result.output, null, 2)}\n`);
+    return result;
+  }
+  if (result.code === 0 && result.output?.message) {
+    writeOutput(options, result.output.message);
     return result;
   }
   if (result.code === 0) {
@@ -97,140 +100,8 @@ async function runStatus(options) {
   };
 }
 
-function processManager(options) {
-  return options.processManager || defaultProcessManager;
-}
-
-function processOptions(options) {
-  return {
-    ...options,
-    paths: resolveRuntimePaths(options)
-  };
-}
-
 function launchAgent(options) {
   return options.launchAgent || defaultLaunchAgent;
-}
-
-async function runStart(options) {
-  return {
-    code: 0,
-    output: await processManager(options).startManagedServer(processOptions(options))
-  };
-}
-
-async function runStop(options) {
-  const output = await processManager(options).stopManagedServer(processOptions(options));
-  return {
-    code: output.ok === false ? 1 : 0,
-    output
-  };
-}
-
-async function runRestart(options) {
-  const output = await processManager(options).restartManagedServer(processOptions(options));
-  return {
-    code: output.ok === false ? 1 : 0,
-    output
-  };
-}
-
-async function runLogs(options) {
-  return {
-    code: 0,
-    output: await processManager(options).readManagedLogs(processOptions(options))
-  };
-}
-
-async function runInstall(args, options) {
-  const paths = resolveRuntimePaths(options);
-  const relayState = await readRelayLaunchAgentState({ ...options, paths });
-  const helperOptions = {
-    ...options,
-    paths,
-    nodePath: options.nodePath || process.execPath,
-    cliPath: options.cliPath || DEFAULT_CLI_PATH,
-    relayClientPath: options.relayClientPath || DEFAULT_RELAY_CLIENT_PATH,
-    relayConfigured: relayState.configured
-  };
-  if (!hasFlag(args, '--dry-run')) {
-    const output = await launchAgent(options).installMacLaunchAgent(helperOptions);
-    return {
-      code: output.ok === false ? 1 : 0,
-      output
-    };
-  }
-  return {
-    code: 0,
-    output: launchAgent(options).buildMacInstallPlan({
-      ...helperOptions,
-      dryRun: true
-    })
-  };
-}
-
-async function runUninstall(args, options) {
-  const output = await launchAgent(options).uninstallMacLaunchAgent({
-    ...options,
-    paths: resolveRuntimePaths(options),
-    removeData: hasFlag(args, '--remove-data'),
-    confirmRemoveData: hasFlag(args, '--confirm-remove-data')
-  });
-  return {
-    code: output.ok === false ? 1 : 0,
-    output
-  };
-}
-
-async function runEnable(options) {
-  const paths = resolveRuntimePaths(options);
-  const relayState = await readRelayLaunchAgentState({ ...options, paths });
-  const output = await launchAgent(options).enableMacLaunchAgent({
-    ...options,
-    paths,
-    relayConfigured: relayState.configured
-  });
-  return {
-    code: output.ok === false ? 1 : 0,
-    output
-  };
-}
-
-async function runDisable(options) {
-  const output = await launchAgent(options).disableMacLaunchAgent({
-    ...options,
-    paths: resolveRuntimePaths(options)
-  });
-  return {
-    code: output.ok === false ? 1 : 0,
-    output
-  };
-}
-
-function hasRelayConfigMutation(args) {
-  return hasFlag(args, '--url') || hasFlag(args, '--secret') || hasFlag(args, '--local-url');
-}
-
-async function runRelayConfig(args, options) {
-  const paths = resolveRuntimePaths(options);
-  if (!hasRelayConfigMutation(args)) {
-    const output = await readRelayConfig({ ...options, paths, redact: true });
-    return {
-      code: 0,
-      output
-    };
-  }
-  const output = await saveRelayConfig({
-    ...options,
-    paths,
-    relayUrl: flagValue(args, '--url'),
-    relaySecret: flagValue(args, '--secret'),
-    localUrl: flagValue(args, '--local-url')
-  });
-  return {
-    code: output.ok === false ? 1 : 0,
-    output
-  };
 }
 
 function runHelp() {
@@ -239,17 +110,30 @@ function runHelp() {
     output: {
       command: 'help',
       ok: true,
-      commands: ['doctor', 'status', 'install', 'install --dry-run', 'uninstall', 'enable', 'disable', 'relay-config', 'start', 'stop', 'restart', 'logs', 'serve']
+      commands: ['setup', 'doctor', 'status', 'install', 'install --dry-run', 'uninstall', 'enable', 'disable', 'relay-config', 'start', 'stop', 'restart', 'logs', 'serve']
     }
   };
 }
 
 async function routeCommand(command, args, options) {
+  if (command === 'help' || hasFlag(args, '--help')) {
+    return runHelp();
+  }
   if (command === 'doctor') {
     return runDoctor(options);
   }
   if (command === 'status') {
     return runStatus(options);
+  }
+  if (command === 'setup') {
+    const paths = resolveRuntimePaths(options);
+    return runSetup(args, {
+      ...options,
+      paths,
+      launchAgent: launchAgent(options),
+      cliPath: options.cliPath || DEFAULT_CLI_PATH,
+      relayClientPath: options.relayClientPath || DEFAULT_RELAY_CLIENT_PATH
+    });
   }
   if (command === 'install') {
     return runInstall(args, options);
@@ -281,9 +165,6 @@ async function routeCommand(command, args, options) {
   if (command === 'serve') {
     return runServe();
   }
-  if (command === 'help' || hasFlag(args, '--help')) {
-    return runHelp();
-  }
   return errorResult(`Unsupported command: ${command}`);
 }
 
@@ -291,7 +172,16 @@ export async function runCli(args = [], options = {}) {
   const json = hasFlag(args, '--json');
   const command = stripFlags(args)[0] || 'help';
   const result = await routeCommand(command, args, options).catch((error) => {
-    const details = Array.isArray(error.cleanup) ? { cleanup: error.cleanup } : {};
+    const details = {};
+    if (Array.isArray(error.cleanup)) {
+      details.cleanup = error.cleanup;
+    }
+    if (String(error.stderr || '').trim()) {
+      details.stderr = String(error.stderr).trim();
+    }
+    if (String(error.stdout || '').trim()) {
+      details.stdout = String(error.stdout).trim();
+    }
     return errorResult(error.message, 1, details);
   });
   return emit(result, options, json);

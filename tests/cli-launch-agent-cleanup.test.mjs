@@ -183,6 +183,7 @@ test('enableMacLaunchAgent cleans up bootstrapped service when first kickstart f
     calls.map((call) => [call.command, ...call.args]),
     [
       ['plutil', '-lint', paths.launchAgentPath],
+      ['launchctl', 'bootout', `gui/${process.getuid()}/com.codexmobile.relay-connector`],
       ['launchctl', 'bootout', `gui/${process.getuid()}/com.codexmobile.agent`],
       ['launchctl', 'bootstrap', `gui/${process.getuid()}`, paths.launchAgentPath],
       ['launchctl', 'kickstart', '-k', `gui/${process.getuid()}/com.codexmobile.agent`],

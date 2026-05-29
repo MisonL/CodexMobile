@@ -120,6 +120,44 @@ test('runCli saves and shows redacted relay connector config', async () => {
   assert.doesNotMatch(JSON.stringify(status.output), new RegExp(secret));
 });
 
+test('runCli command help is side-effect free', async () => {
+  const options = await makeFixture();
+  const result = await runCli(['setup', '--help', '--json'], {
+    ...options,
+    launchAgent: {
+      installMacLaunchAgent: async () => {
+        throw new Error('help should not install');
+      }
+    },
+    prompt: async () => {
+      throw new Error('help should not prompt');
+    },
+    takeOverPort: async () => {
+      throw new Error('help should not inspect takeover');
+    }
+  });
+
+  assert.equal(result.code, 0);
+  assert.equal(result.output.command, 'help');
+  assert.ok(result.output.commands.includes('setup'));
+});
+
+test('runCli accepts equals syntax for relay connector config', async () => {
+  const options = await makeFixture();
+  const secret = '0123456789abcdef0123456789abcdef';
+  const saved = await runCli([
+    'relay-config',
+    '--url=wss://equals.example/relay/mac',
+    `--secret=${secret}`,
+    '--local-url=http://127.0.0.1:3321',
+    '--json'
+  ], options);
+
+  assert.equal(saved.code, 0);
+  assert.equal(saved.output.config.relayUrl, 'wss://equals.example/relay/mac');
+  assert.equal(saved.output.config.relaySecret, '[redacted]');
+});
+
 test('runCli rejects weak relay connector secret', async () => {
   const options = await makeFixture();
   const result = await runCli([
@@ -134,6 +172,37 @@ test('runCli rejects weak relay connector secret', async () => {
   assert.equal(result.code, 1);
   assert.equal(result.output.ok, false);
   assert.match(result.output.error, /at least 32 characters/);
+});
+
+test('runCli start stop restart use LaunchAgent after setup installed plist', async () => {
+  const options = await makeFixture();
+  await fs.mkdir(path.dirname(options.homedir), { recursive: true });
+  await fs.mkdir(path.join(options.homedir, 'Library', 'LaunchAgents'), { recursive: true });
+  await fs.writeFile(
+    path.join(options.homedir, 'Library', 'LaunchAgents', 'com.codexmobile.agent.plist'),
+    '<plist/>',
+    'utf8'
+  );
+  const calls = [];
+  const launchAgent = {
+    enableMacLaunchAgent: async () => {
+      calls.push('enable');
+      return { command: 'enable', ok: true, enabled: true };
+    },
+    disableMacLaunchAgent: async () => {
+      calls.push('disable');
+      return { command: 'disable', ok: true, disabled: true };
+    }
+  };
+
+  const started = await runCli(['start', '--json'], { ...options, launchAgent });
+  const restarted = await runCli(['restart', '--json'], { ...options, launchAgent });
+  const stopped = await runCli(['stop', '--json'], { ...options, launchAgent });
+
+  assert.equal(started.output.service, 'launch-agent');
+  assert.equal(restarted.output.service, 'launch-agent');
+  assert.equal(stopped.output.service, 'launch-agent');
+  assert.deepEqual(calls, ['enable', 'enable', 'disable']);
 });
 
 test('bin/codexmobile.mjs supports doctor --json', async () => {
