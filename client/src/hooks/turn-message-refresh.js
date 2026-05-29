@@ -4,7 +4,7 @@ function localActiveRuns(app) {
   return Object.keys(app.runningByIdRef?.current || {}).map((key) => ({ turnId: key }));
 }
 
-export function mergeCompletedTurnMessages({ app, activeRuns = [], serverMessages = [] }) {
+export function mergeServerMessagesPreservingLocalRuns({ app, activeRuns = [], serverMessages = [] }) {
   const preserveLocalRuns = Boolean(
     app.activePollsRef.current.size ||
       app.turnRefreshTimersRef.current.size

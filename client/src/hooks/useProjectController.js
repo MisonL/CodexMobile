@@ -3,6 +3,7 @@ import { apiFetch, isPairingRequiredError } from '../api.js';
 import { canUseAppShellFromStatus, connectionStateFromStatus } from '../relay-status.js';
 import { isDraftSession } from '../app-core-utils.js';
 import { createProjectSessionActions } from './project-session-actions.js';
+import { mergeServerMessagesPreservingLocalRuns } from './turn-message-refresh.js';
 
 function blurActiveElement() {
   if (typeof document.activeElement?.blur === 'function') {
@@ -37,7 +38,7 @@ export function useProjectController(app, runRegistry) {
     if (sessionLoadIdRef.current !== loadId) {
       return false;
     }
-    app.setMessages(data.messages || []);
+    mergeServerMessagesPreservingLocalRuns({ app, serverMessages: data.messages || [] });
     return true;
   };
 

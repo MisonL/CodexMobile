@@ -2,16 +2,24 @@ import { useEffect, useMemo, useState } from 'react';
 import { rateLimitLockFromError, remainingLockSeconds } from '../api.js';
 import { retryAfterLabel } from '../app-core-utils.js';
 
+export function hasActiveRelayOperationLock(locks) {
+  return Object.values(locks || {}).some((lock) => remainingLockSeconds(lock) > 0);
+}
+
 export function useRelayOperationLocks() {
   const [locks, setLocks] = useState({});
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
-    const hasActiveLock = Object.values(locks).some((lock) => remainingLockSeconds(lock) > 0);
-    if (!hasActiveLock) {
+    if (!hasActiveRelayOperationLock(locks)) {
       return undefined;
     }
-    const timer = window.setInterval(() => setNow(Date.now()), 500);
+    const timer = window.setInterval(() => {
+      setNow(Date.now());
+      if (!hasActiveRelayOperationLock(locks)) {
+        window.clearInterval(timer);
+      }
+    }, 500);
     return () => window.clearInterval(timer);
   }, [locks]);
 

@@ -5,7 +5,7 @@ import {
   upsertStatusMessage
 } from '../app-message-state.js';
 import { apiFetch } from '../api.js';
-import { mergeCompletedTurnMessages } from './turn-message-refresh.js';
+import { mergeServerMessagesPreservingLocalRuns } from './turn-message-refresh.js';
 
 export function useTurnRefresh(app, runRegistry) {
   function clearTurnRefreshTimer(turnId) {
@@ -26,7 +26,7 @@ export function useTurnRefresh(app, runRegistry) {
     try {
       const data = await apiFetch(`/api/sessions/${encodeURIComponent(payload.sessionId)}/messages?limit=120`);
       if (data.messages?.length && hasAssistantResultForTurn(data.messages, payload)) {
-        mergeCompletedTurnMessages({
+        mergeServerMessagesPreservingLocalRuns({
           app,
           activeRuns: [payload],
           serverMessages: data.messages

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { mergeCompletedTurnMessages } from '../client/src/hooks/turn-message-refresh.js';
+import { mergeServerMessagesPreservingLocalRuns } from '../client/src/hooks/turn-message-refresh.js';
 
 function createRefreshApp(messages, { activePolls = [], turnRefreshTimers = [] } = {}) {
   return {
@@ -37,9 +37,8 @@ test('completed turn refresh preserves queued local messages for another turn', 
   );
   app.runningByIdRef.current = { 'turn-2': true };
 
-  mergeCompletedTurnMessages({
+  mergeServerMessagesPreservingLocalRuns({
     app,
-    activeRuns: [{ sessionId: 'session-1', turnId: 'turn-1' }],
     serverMessages: [
       {
         id: 'server-user-1',
