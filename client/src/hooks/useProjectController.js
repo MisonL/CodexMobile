@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react';
-import { apiFetch, clearToken } from '../api.js';
+import { apiFetch, isPairingRequiredError } from '../api.js';
 import { canUseAppShellFromStatus, connectionStateFromStatus } from '../relay-status.js';
 import { isDraftSession } from '../app-core-utils.js';
 import { createProjectSessionActions } from './project-session-actions.js';
@@ -109,9 +109,9 @@ export function useProjectController(app, runRegistry) {
           .finally(() => app.setSyncing(false));
       }
     } catch (error) {
-      if (String(error.message).includes('Pairing')) {
-        clearToken();
+      if (isPairingRequiredError(error)) {
         app.setAuthenticated(false);
+        app.setConnectionState('pairing_required');
       }
     }
   }, [app, loadProjects, loadStatus]);

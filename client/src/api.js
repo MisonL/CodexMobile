@@ -25,6 +25,44 @@ export class ApiError extends Error {
   }
 }
 
+function browserLocalStorage() {
+  return typeof localStorage === 'undefined' ? null : localStorage;
+}
+
+function readTokenFromStorage() {
+  try {
+    return browserLocalStorage()?.getItem(TOKEN_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function writeTokenToStorage(token) {
+  const storage = browserLocalStorage();
+  if (!storage) {
+    return false;
+  }
+  try {
+    storage.setItem(TOKEN_KEY, token);
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+function removeTokenFromStorage() {
+  const storage = browserLocalStorage();
+  if (!storage) {
+    return false;
+  }
+  try {
+    storage.removeItem(TOKEN_KEY);
+  } catch {
+    return false;
+  }
+  return true;
+}
+
 export function rateLimitLockFromError(error, scope, nowMs = Date.now()) {
   if (!error || error.code !== 'relay_rate_limited' || !Number(error.retryAfter)) {
     return null;
@@ -50,15 +88,39 @@ function errorMessageFor(data, fallback) {
 }
 
 export function getToken() {
-  return localStorage.getItem(TOKEN_KEY) || '';
+  return readTokenFromStorage();
 }
 
 export function setToken(token) {
-  localStorage.setItem(TOKEN_KEY, token);
+  if (!writeTokenToStorage(token)) {
+    throw new Error('无法保存配对凭据，请检查浏览器存储权限。');
+  }
 }
 
 export function clearToken() {
-  localStorage.removeItem(TOKEN_KEY);
+  return removeTokenFromStorage();
+}
+
+export async function requestPersistentStorage() {
+  if (typeof navigator === 'undefined' || typeof navigator.storage?.persist !== 'function') {
+    return false;
+  }
+  try {
+    return Boolean(await navigator.storage.persist());
+  } catch {
+    return false;
+  }
+}
+
+export function isPairingRequiredError(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '');
+  return (
+    code === 'pairing_required' ||
+    code === 'Pairing required' ||
+    message === ERROR_MESSAGES.pairing_required ||
+    message === 'Pairing required'
+  );
 }
 
 export async function apiFetch(path, options = {}) {

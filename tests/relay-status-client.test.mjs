@@ -6,6 +6,13 @@ import {
   canUseAppShellFromStatus,
   connectionStateFromStatus
 } from '../client/src/relay-status.js';
+import {
+  ApiError,
+  clearToken,
+  getToken,
+  isPairingRequiredError,
+  setToken
+} from '../client/src/api.js';
 import { hasAssistantResultForTurn, hasVisibleAssistantForTurn } from '../client/src/app-core-utils.js';
 import {
   mergeServerMessagesWithLocalState,
@@ -17,6 +24,37 @@ import {
   handleRealtimeVoiceEvent,
   realtimeVoiceErrorMessage
 } from '../client/src/hooks/voice-realtime-events.js';
+
+function createMemoryStorage({ failWrites = false } = {}) {
+  const entries = new Map();
+  return {
+    getItem: (key) => entries.get(key) || null,
+    setItem: (key, value) => {
+      if (failWrites) {
+        throw new Error('storage_disabled');
+      }
+      entries.set(key, String(value));
+    },
+    removeItem: (key) => entries.delete(key)
+  };
+}
+
+async function withLocalStorage(storage, callback) {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: storage
+  });
+  try {
+    await callback();
+  } finally {
+    if (previous) {
+      Object.defineProperty(globalThis, 'localStorage', previous);
+    } else {
+      delete globalThis.localStorage;
+    }
+  }
+}
 
 test('deferred relay auth validation preserves app shell without marking status authenticated', () => {
   const status = {
@@ -44,6 +82,40 @@ test('unauthenticated relay status still requires pairing without deferred valid
 
   assert.equal(authenticatedFromStatus(status), false);
   assert.equal(connectionStateFromStatus(status), 'pairing_required');
+});
+
+test('pairing token persists in browser storage until explicitly cleared', async () => {
+  await withLocalStorage(createMemoryStorage(), async () => {
+    setToken('device-token-1');
+    assert.equal(getToken(), 'device-token-1');
+    clearToken();
+    assert.equal(getToken(), '');
+  });
+});
+
+test('pairing fails visibly when browser storage cannot persist the token', async () => {
+  await withLocalStorage(createMemoryStorage({ failWrites: true }), async () => {
+    assert.throws(
+      () => setToken('device-token-1'),
+      /无法保存配对凭据/
+    );
+    assert.equal(getToken(), '');
+  });
+});
+
+test('pairing-required errors are detected from relay and legacy local responses', () => {
+  assert.equal(isPairingRequiredError(new ApiError('需要重新配对这台 Mac。', {
+    status: 401,
+    code: 'pairing_required'
+  })), true);
+  assert.equal(isPairingRequiredError(new ApiError('Pairing required', {
+    status: 401,
+    code: 'Pairing required'
+  })), true);
+  assert.equal(isPairingRequiredError(new ApiError('Mac 连接器未在线。', {
+    status: 503,
+    code: 'mac_offline'
+  })), false);
 });
 
 test('deferred auth validation is relay scoped only', () => {

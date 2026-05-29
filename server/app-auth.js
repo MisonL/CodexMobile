@@ -16,6 +16,6 @@ export async function requireAuth(req, res, pathname = '') {
   if ((req.method || 'GET') !== 'GET') {
     console.warn(`[auth] rejected ${req.method || 'GET'} ${pathname || req.url || ''} remote=${remoteAddress(req)}`);
   }
-  sendJson(res, 401, { error: 'Pairing required' });
+  sendJson(res, 401, { error: 'pairing_required' });
   return false;
 }

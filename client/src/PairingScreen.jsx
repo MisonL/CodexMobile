@@ -1,6 +1,6 @@
 import { Check, Loader2, Monitor } from 'lucide-react';
 import { useState } from 'react';
-import { apiFetch, setToken } from './api.js';
+import { apiFetch, requestPersistentStorage, setToken } from './api.js';
 
 export function PairingScreen({ onPaired }) {
   const [code, setCode] = useState('');
@@ -20,6 +20,7 @@ export function PairingScreen({ onPaired }) {
         }
       });
       setToken(result.token);
+      requestPersistentStorage();
       onPaired();
     } catch (err) {
       setError(err.message);
