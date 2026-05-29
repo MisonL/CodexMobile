@@ -24,7 +24,7 @@
 
 | relay state | 判断条件 | 顶栏 | 主要操作 | 自动重试 |
 | --- | --- | --- | --- | --- |
-| `pairing_required` | `authenticated=false` 或 401 `pairing_required` | 需要配对 | 显示配对页，禁用项目和发送 | 否 |
+| `pairing_required` | `authenticated=false` 或 401 `pairing_required` | 需要配对 | 显示配对页，禁用项目和发送；不主动清除已保存 token | 否 |
 | `mac_offline` | `macConnected=false` | Mac 未连接 | 禁用发送、上传、语音、图片；允许刷新状态 | 是 |
 | `mac_local_offline` | `localStatus.reachable=false` | 本地服务离线 | 禁用业务操作；提示先启动 Mac 本地服务 | 是 |
 | `ready` | `authenticated=true`、`macConnected=true`、`localStatus.reachable=true` | 已连接 | 允许文本、普通 `/ws`、streaming media 与 realtime voice | 是 |
@@ -91,6 +91,8 @@ Relay 仍禁用或提示不支持：
 - `relay-status` 后续广播能更新 Mac 在线与 local status。
 - Mac 离线后，发送按钮不可继续提交新任务。
 - `mac_local_offline` 不会清除浏览器 token。
+- relay 状态波动、请求超时、429 和 501 不会清除浏览器 token。
+- 浏览器本地存储不可写时，配对必须显式失败并提示用户。
 - 501 unsupported 不会跳转配对页。
 - 429 rate limit 会给出可恢复提示。
 - Space 重启后，前端能重新连接并重新拉取 `/api/status`。

@@ -73,7 +73,7 @@ Mac 本地服务仍然是 CodexMobile 业务行为的事实源。Space 只作为
 
 ### 4.1 浏览器配对
 
-Space 上的 `POST /api/pair` 通过 connector 转发到 Mac。Mac 本地服务生成浏览器 device token。浏览器像本地直连模式一样保存这个 Mac 有效 token。
+Space 上的 `POST /api/pair` 通过 connector 转发到 Mac。Mac 本地服务生成浏览器 device token。浏览器像本地直连模式一样，在当前访问地址的本地存储中保存这个 Mac 有效 token。
 
 收益：
 
@@ -85,6 +85,7 @@ Space 上的 `POST /api/pair` 通过 connector 转发到 Mac。Mac 本地服务�
 
 - Mac connector 离线时，Space `POST /api/pair` 返回 `503 mac_offline`。
 - 配对码无效时，原样返回 Mac 的响应。
+- 浏览器本地存储不可写时，前端必须让配对显式失败，不能假装成功。
 - Space 重启并丢失内存 token cache 后，下一个浏览器请求可以先向 Mac 复验再转发。
 
 ### 4.2 Space 上的浏览器 token 校验
@@ -96,7 +97,7 @@ Space 上的 `POST /api/pair` 通过 connector 转发到 Mac。Mac 本地服务�
 3. 校验成功后将结果短 TTL 缓存在内存中。
 4. 如果无法校验，则根据 Mac connector 和 Mac 本地服务可达性返回 `401 pairing_required`、`503 mac_offline` 或 `503 mac_local_offline`。
 
-Space 不得自行生成浏览器 token。
+Space 不得自行生成浏览器 token。relay、Mac connector 或 Mac 本地服务短暂离线时，前端不得自动清除已保存的浏览器 token；只有重新配对成功才覆盖旧 token。
 
 ### 4.3 Mac connector 鉴权
 

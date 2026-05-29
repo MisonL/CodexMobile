@@ -152,11 +152,11 @@ relay 有两个独立鉴权域。
 
 - `POST /api/pair` 通过 connector 转发到 Mac。
 - Mac 本地服务校验配对码并返回 device token。
-- 浏览器把 device token 存储在 local storage。
+- 浏览器把 device token 存储在当前访问地址的 local storage；如果存储不可写，配对必须显式失败。
 - 浏览器传递 `Authorization: Bearer <device-token>`。
 - Space 将已校验 token hash 短 TTL 缓存在内存中。
 
-由于免费 Space 磁盘是 ephemeral，浏览器 validation cache 只保存在内存中。Space 重启后，relay 可以在 Mac connector 在线时向 Mac 复验浏览器 token。如果无法复验，relay 返回稳定错误，而不是自行生成 token。
+由于免费 Space 磁盘是 ephemeral，浏览器 validation cache 只保存在内存中。Space 重启后，relay 可以在 Mac connector 在线时向 Mac 复验浏览器 token。如果无法复验，relay 返回稳定错误，而不是自行生成 token；前端也不应因为短暂离线自动清除浏览器 token。
 
 ### Mac connector 鉴权
 

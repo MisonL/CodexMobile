@@ -81,6 +81,8 @@ http://<电脑的私网 IP>:3321
 
 第一次进入需要输入服务启动时打印的 6 位配对码。配对成功后，浏览器会保存设备 token，后续不需要每次重新输入。
 
+设备 token 保存在当前访问地址对应的浏览器本地存储中。Mac 或 relay 短暂离线不会自动清除 token；如果浏览器禁止本地存储，配对会直接报错。更换浏览器、访问域名/IP、隐私模式或清理站点数据后，需要重新配对。
+
 ## npm CLI 管理
 
 当前分支提供 `codexmobile` CLI 的产品化安装骨架。现有命令支持本机预检、状态查看、服务启停、日志查看和 macOS 用户级 LaunchAgent 显式安装。`install` 只有在用户主动执行非 dry-run 命令时才会写入 `~/Library/LaunchAgents/com.codexmobile.agent.plist`；只有已通过 `relay-config` 保存有效配置时，才会同时写入 `~/Library/LaunchAgents/com.codexmobile.relay-connector.plist`，不会改变现有 `npm start` 使用方式。
@@ -372,7 +374,8 @@ http://127.0.0.1:8000/v1/audio/transcriptions
 
 ## 安全说明
 
-- 配对 token 存储在 `CODEXMOBILE_HOME/state`；未设置时存储在仓库 `.codexmobile/state`
+- Mac 端 trusted device 状态存储在 `CODEXMOBILE_HOME/state`；未设置时存储在仓库 `.codexmobile/state`
+- 手机浏览器只保存当前访问地址的 device token，不会因为 relay 或 Mac 短暂离线被自动清除
 - 上传文件和生成图片存储在 `CODEXMOBILE_HOME/uploads` 和 `CODEXMOBILE_HOME/generated`；未设置时存储在仓库 `.codexmobile`
 - `.env.example` 只包含占位配置，不包含真实密钥
 - `.gitignore` 已排除 `.env`、`.codexmobile`、证书、日志、构建产物和依赖目录
