@@ -1,7 +1,15 @@
 import { useRef, useState } from 'react';
-import { getToken, readStoredValue, writeStoredValue } from '../api.js';
+import { getToken, readStoredValue } from '../api.js';
 import { DEFAULT_STATUS } from '../relay-status.js';
 import { DEFAULT_REASONING_EFFORT, REASONING_DEFAULT_VERSION, THEME_KEY } from '../app-core-utils.js';
+
+function initialReasoningEffort() {
+  const defaultVersion = readStoredValue('codexmobile.reasoningDefaultVersion');
+  if (defaultVersion !== REASONING_DEFAULT_VERSION) {
+    return DEFAULT_REASONING_EFFORT;
+  }
+  return readStoredValue('codexmobile.reasoningEffort', DEFAULT_REASONING_EFFORT);
+}
 
 export function useAppState() {
   const [status, setStatus] = useState(DEFAULT_STATUS);
@@ -24,15 +32,7 @@ export function useAppState() {
   const [uploading, setUploading] = useState(false);
   const [permissionMode, setPermissionMode] = useState('default');
   const [selectedModel, setSelectedModel] = useState(DEFAULT_STATUS.model);
-  const [selectedReasoningEffort, setSelectedReasoningEffort] = useState(() => {
-    const defaultVersion = readStoredValue('codexmobile.reasoningDefaultVersion');
-    if (defaultVersion !== REASONING_DEFAULT_VERSION) {
-      writeStoredValue('codexmobile.reasoningDefaultVersion', REASONING_DEFAULT_VERSION);
-      writeStoredValue('codexmobile.reasoningEffort', DEFAULT_REASONING_EFFORT);
-      return DEFAULT_REASONING_EFFORT;
-    }
-    return readStoredValue('codexmobile.reasoningEffort', DEFAULT_REASONING_EFFORT);
-  });
+  const [selectedReasoningEffort, setSelectedReasoningEffort] = useState(initialReasoningEffort);
   const [runningById, setRunningById] = useState({});
   const [theme, setTheme] = useState(() =>
     readStoredValue(THEME_KEY) === 'dark' ? 'dark' : 'light'

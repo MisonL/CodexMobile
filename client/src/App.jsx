@@ -3,7 +3,7 @@ import { readStoredValue, writeStoredValue } from './api.js';
 import { DEFAULT_STATUS, relayDisabledReason } from './relay-status.js';
 import { PairingScreen } from './PairingScreen.jsx';
 import { TopBar } from './TopBar.jsx';
-import { THEME_KEY } from './app-core-utils.js';
+import { DEFAULT_REASONING_EFFORT, REASONING_DEFAULT_VERSION, THEME_KEY } from './app-core-utils.js';
 import { useAppWebSocket } from './hooks/useAppWebSocket.js';
 import { useAppState } from './hooks/useAppState.js';
 import { useChatActions } from './hooks/useChatActions.js';
@@ -113,6 +113,14 @@ export default function App() {
       .querySelector('meta[name="theme-color"]')
       ?.setAttribute('content', theme === 'dark' ? '#171717' : '#f7f7f4');
   }, [theme]);
+
+  useEffect(() => {
+    if (readStoredValue('codexmobile.reasoningDefaultVersion') !== REASONING_DEFAULT_VERSION) {
+      writeStoredValue('codexmobile.reasoningDefaultVersion', REASONING_DEFAULT_VERSION);
+      writeStoredValue('codexmobile.reasoningEffort', DEFAULT_REASONING_EFFORT);
+      setSelectedReasoningEffort(DEFAULT_REASONING_EFFORT);
+    }
+  }, [setSelectedReasoningEffort]);
 
   useEffect(() => {
     if (selectedReasoningEffort) {
