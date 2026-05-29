@@ -121,6 +121,8 @@ npx codexmobile uninstall --json
 npx codexmobile relay-config --json
 ```
 
+发布包会在 `pack`/`publish` 前自动执行 `npm run build`，确保 `npx codexmobile` 包含已构建的 PWA 产物。
+
 推荐首次安装使用交互式 `setup`。它会询问 Space URL 与 relay secret，保存 Mac connector 配置，接管占用 `3321` 的旧 CodexMobile 手动进程，写入并启动本地 server 与 relay connector 两个 LaunchAgent。非交互环境可使用：
 
 ```bash

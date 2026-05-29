@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - main
-      - codex/relay-phase1
+      - codex/hf-space-relay-mac-connector
 
 jobs:
   relay:

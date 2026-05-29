@@ -18,7 +18,7 @@ export function createRelayMetrics() {
   };
 }
 
-export function relayStateFrom({ authenticated, macConnected, macLocalReachable, macHeartbeatMissesTotal }) {
+export function relayStateFrom({ authenticated, macConnected, macLocalReachable }) {
   if (!authenticated) {
     return 'pairing_required';
   }
@@ -27,9 +27,6 @@ export function relayStateFrom({ authenticated, macConnected, macLocalReachable,
   }
   if (macLocalReachable === false) {
     return 'mac_local_offline';
-  }
-  if (macHeartbeatMissesTotal > 0) {
-    return 'degraded';
   }
   return 'ready';
 }
@@ -58,8 +55,7 @@ export function buildRelayStatus({
     relayState: relayStateFrom({
       authenticated,
       macConnected,
-      macLocalReachable: macInfo?.localStatus?.reachable,
-      macHeartbeatMissesTotal: metrics.macHeartbeatMissesTotal
+      macLocalReachable: macInfo?.localStatus?.reachable
     }),
     connected: true,
     authenticated,
