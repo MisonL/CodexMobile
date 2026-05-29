@@ -50,7 +50,7 @@ test('emitCodexEvent keeps real item errors fatal', () => {
   assert.equal(emitted.find((event) => event.type === 'status-update')?.status, 'failed');
 });
 
-test('emitCodexEvent forwards agent messages as assistant updates', () => {
+test('emitCodexEvent treats event_msg agent messages as status only', () => {
   const emitted = [];
   const state = { hadAssistantText: false, failed: false, usage: null };
   emitCodexEvent({
@@ -61,10 +61,9 @@ test('emitCodexEvent forwards agent messages as assistant updates', () => {
     }
   }, 'session-1', 'turn-1', (event) => emitted.push(event), state);
 
-  const assistant = emitted.find((event) => event.type === 'assistant-update');
-  assert.equal(state.hadAssistantText, true);
-  assert.equal(assistant?.content, 'CodexMobile真实链路OK');
-  assert.equal(assistant?.kind, 'agent_message');
+  assert.equal(state.hadAssistantText, false);
+  assert.equal(emitted.some((event) => event.type === 'assistant-update'), false);
+  assert.equal(emitted.find((event) => event.type === 'status-update')?.label, 'CodexMobile真实链路OK');
 });
 
 test('emitCodexEvent forwards array based agent message content', () => {
@@ -83,6 +82,51 @@ test('emitCodexEvent forwards array based agent message content', () => {
   assert.equal(assistant?.content, 'CodexMobile复查OK');
 });
 
+test('emitCodexEvent uses one assistant message id across agent and final messages', () => {
+  const emitted = [];
+  const state = { hadAssistantText: false, failed: false, usage: null };
+  emitCodexEvent({
+    type: 'response_item',
+    payload: {
+      id: 'agent-item-1',
+      type: 'agent_message',
+      content: [{ type: 'output_text', text: '同一条最终回复' }]
+    }
+  }, 'session-1', 'turn-1', (event) => emitted.push(event), state);
+  emitCodexEvent({
+    type: 'response_item',
+    payload: {
+      id: 'message-item-2',
+      type: 'message',
+      role: 'assistant',
+      phase: 'final_answer',
+      content: [{ type: 'output_text', text: '同一条最终回复' }]
+    }
+  }, 'session-1', 'turn-1', (event) => emitted.push(event), state);
+
+  const assistantUpdates = emitted.filter((event) => event.type === 'assistant-update');
+  assert.equal(assistantUpdates.length, 2);
+  assert.deepEqual(assistantUpdates.map((event) => event.messageId), ['assistant-turn-1', 'assistant-turn-1']);
+});
+
+test('emitCodexEvent falls back to task_complete final message for event-only streams', () => {
+  const emitted = [];
+  const state = { hadAssistantText: false, failed: false, usage: null };
+  emitCodexEvent({
+    type: 'event_msg',
+    payload: {
+      type: 'task_complete',
+      last_agent_message: '最终结果'
+    }
+  }, 'session-1', 'turn-1', (event) => emitted.push(event), state);
+
+  const assistant = emitted.find((event) => event.type === 'assistant-update');
+  assert.equal(state.hadAssistantText, true);
+  assert.equal(assistant?.messageId, 'assistant-turn-1');
+  assert.equal(assistant?.content, '最终结果');
+  assert.equal(emitted.length, 1);
+});
+
 test('emitCodexEvent keeps commentary messages out of assistant updates', () => {
   const emitted = [];
   const state = { hadAssistantText: false, failed: false, usage: null };
@@ -99,4 +143,21 @@ test('emitCodexEvent keeps commentary messages out of assistant updates', () => 
   assert.equal(state.hadAssistantText, false);
   assert.equal(emitted.some((event) => event.type === 'assistant-update'), false);
   assert.equal(emitted.find((event) => event.type === 'status-update')?.label, '正在检查链路');
+});
+
+test('emitCodexEvent keeps commentary agent messages out of assistant updates', () => {
+  const emitted = [];
+  const state = { hadAssistantText: false, failed: false, usage: null };
+  emitCodexEvent({
+    type: 'response_item',
+    payload: {
+      type: 'agent_message',
+      phase: 'commentary',
+      content: [{ type: 'output_text', text: '正在抓取行情' }]
+    }
+  }, 'session-1', 'turn-1', (event) => emitted.push(event), state);
+
+  assert.equal(state.hadAssistantText, false);
+  assert.equal(emitted.some((event) => event.type === 'assistant-update'), false);
+  assert.equal(emitted.find((event) => event.type === 'status-update')?.label, '正在抓取行情');
 });

@@ -67,6 +67,25 @@ function emitThreadEvent(event, sessionId, turnId, emit, state) {
     return true;
   }
 
+  if (event.type === 'event_msg' && event.payload?.type === 'task_complete') {
+    const content = String(event.payload.last_agent_message || '').trim();
+    if (content && !state.hadAssistantText) {
+      state.hadAssistantText = true;
+      emit({
+        type: 'assistant-update',
+        sessionId,
+        turnId,
+        messageId: `assistant-${turnId}`,
+        role: 'assistant',
+        kind: 'message',
+        phase: 'final_answer',
+        content,
+        done: true
+      });
+    }
+    return true;
+  }
+
   if (event.type === 'turn.failed') {
     const error = event.error?.message || event.error || 'Codex turn failed';
     state.failed = true;
@@ -88,9 +107,36 @@ function emitThreadEvent(event, sessionId, turnId, emit, state) {
   return false;
 }
 
-function emitAssistantItem({ item, kind, status, done, messageId, sessionId, turnId, emit, state }) {
+function emitAssistantItem({ item, kind, status, done, messageId, sessionId, turnId, emit, state, eventType }) {
+  const content = contentFromItem(item);
+
+  if (item.phase === 'commentary') {
+    if (content.trim()) {
+      emitStatus(emit, {
+        sessionId,
+        turnId,
+        kind: kind === 'message' ? 'agent_message' : kind,
+        status: 'running',
+        label: compactStatusLabel(content)
+      });
+    }
+    return true;
+  }
+
+  if (eventType === 'event_msg' && kind === 'agent_message') {
+    if (content.trim()) {
+      emitStatus(emit, {
+        sessionId,
+        turnId,
+        kind,
+        status: 'running',
+        label: compactStatusLabel(content)
+      });
+    }
+    return true;
+  }
+
   if (kind === 'agent_message') {
-    const content = contentFromItem(item);
     if (!content.trim()) {
       return true;
     }
@@ -116,25 +162,10 @@ function emitAssistantItem({ item, kind, status, done, messageId, sessionId, tur
     return true;
   }
 
-  if (item.phase === 'commentary') {
-    const content = contentFromItem(item);
-    if (content.trim()) {
-      emitStatus(emit, {
-        sessionId,
-        turnId,
-        kind: kind === 'message' ? 'agent_message' : kind,
-        status: 'running',
-        label: compactStatusLabel(content)
-      });
-    }
-    return true;
-  }
-
   if (kind !== 'message' || item.role !== 'assistant') {
     return false;
   }
 
-  const content = contentFromItem(item);
   if (!content.trim()) {
     return true;
   }
@@ -201,9 +232,10 @@ export function emitCodexEvent(event, sessionId, turnId, emit, state) {
   const done = event.type === 'item.completed';
   const kind = item.type || 'item';
   const status = eventStatus(event, item);
-  const messageId = item.id || `${turnId}-${kind}`;
+  const isAssistantTextItem = kind === 'agent_message' || (kind === 'message' && item.role === 'assistant');
+  const messageId = isAssistantTextItem ? `assistant-${turnId}` : item.id || `${turnId}-${kind}`;
 
-  if (emitAssistantItem({ item, kind, status, done, messageId, sessionId, turnId, emit, state })) {
+  if (emitAssistantItem({ item, kind, status, done, messageId, sessionId, turnId, emit, state, eventType: event.type })) {
     return;
   }
 

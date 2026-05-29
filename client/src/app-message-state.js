@@ -305,11 +305,17 @@ export function upsertAssistantMessage(current, payload) {
         (message) => !(message.role === 'assistant' && message.preview && message.turnId === payload.turnId)
       )
       : withoutActivity;
-  const existingIndex = withoutStalePreview.findIndex((message) => message.id === id);
+  const withoutDuplicateTurnAssistant =
+    !isPreview && payload.turnId
+      ? withoutStalePreview.filter(
+        (message) => !(message.role === 'assistant' && message.turnId === payload.turnId && message.id !== id)
+      )
+      : withoutStalePreview;
+  const existingIndex = withoutDuplicateTurnAssistant.findIndex((message) => message.id === id);
   if (existingIndex >= 0) {
-    const next = [...withoutStalePreview];
+    const next = [...withoutDuplicateTurnAssistant];
     next[existingIndex] = nextMessage;
     return next;
   }
-  return [...withoutStalePreview, nextMessage];
+  return [...withoutDuplicateTurnAssistant, nextMessage];
 }

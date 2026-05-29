@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { mergeServerMessagesWithLocalState } from '../client/src/app-message-state.js';
+import { mergeServerMessagesWithLocalState, upsertAssistantMessage } from '../client/src/app-message-state.js';
 
 test('message refresh preserves duplicate pending user messages when content match is ambiguous', () => {
   const current = [
@@ -149,5 +149,45 @@ test('message refresh preserves assistant preview until the same turn has a serv
   assert.deepEqual(
     merged.map((message) => message.id),
     ['assistant-turn-1', 'preview-turn-2']
+  );
+});
+
+test('assistant live updates replace earlier assistant bubbles for the same turn', () => {
+  let messages = upsertAssistantMessage([], {
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+    messageId: 'agent-message-1',
+    content: 'intermediate text'
+  });
+  messages = upsertAssistantMessage(messages, {
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+    messageId: 'final-message-1',
+    content: 'final text'
+  });
+
+  assert.deepEqual(
+    messages.map((message) => [message.id, message.content]),
+    [['final-message-1', 'final text']]
+  );
+});
+
+test('assistant live updates preserve different turns in the same session', () => {
+  let messages = upsertAssistantMessage([], {
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+    messageId: 'assistant-turn-1',
+    content: 'first'
+  });
+  messages = upsertAssistantMessage(messages, {
+    sessionId: 'session-1',
+    turnId: 'turn-2',
+    messageId: 'assistant-turn-2',
+    content: 'second'
+  });
+
+  assert.deepEqual(
+    messages.map((message) => [message.id, message.content]),
+    [['assistant-turn-1', 'first'], ['assistant-turn-2', 'second']]
   );
 });

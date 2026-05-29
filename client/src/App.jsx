@@ -166,6 +166,7 @@ export default function App() {
     <div className="app-shell">
       <TopBar
         selectedProject={selectedProject}
+        selectedSession={selectedSession}
         connectionState={connectionState}
         onMenu={() => setDrawerOpen(true)}
         onOpenDocs={() => setDocsOpen(true)}

@@ -4,6 +4,7 @@ import { CONNECTION_STATUS } from './relay-status.js';
 
 export function TopBar({
   selectedProject,
+  selectedSession,
   connectionState,
   onMenu,
   onOpenDocs,
@@ -17,7 +18,7 @@ export function TopBar({
         <Menu size={22} />
       </button>
       <div className="top-title">
-        <strong>{selectedProject?.name || 'CodexMobile'}</strong>
+        <strong>{selectedSession?.title || selectedProject?.name || 'CodexMobile'}</strong>
         <span className={`connection-status ${status.className}`}>
           <Wifi size={13} />
           {status.label}
