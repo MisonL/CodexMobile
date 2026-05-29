@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { apiFetch, getToken, websocketUrl } from '../api.js';
-import { mergeServerMessagesWithLocalState } from '../app-message-state.js';
 import { canUseAppShellFromStatus, connectionStateFromStatus } from '../relay-status.js';
 import { handleSocketMessage } from './app-websocket-events.js';
+import { mergeServerMessagesPreservingLocalRuns } from './turn-message-refresh.js';
 
 const WS_RECONNECT_INITIAL_MS = 1200;
 const WS_RECONNECT_MAX_MS = 30000;
@@ -59,10 +59,6 @@ export function useAppWebSocket(app, runRegistry, turnRefresh) {
         return;
       }
       const activeRuns = Array.isArray(statusSnapshot?.activeRuns) ? statusSnapshot.activeRuns : [];
-      const preserveLocalRuns = Boolean(
-        runtime.app.activePollsRef.current.size ||
-        runtime.app.turnRefreshTimersRef.current.size
-      );
       const sessionId = session.id;
       apiFetch(`/api/sessions/${encodeURIComponent(session.id)}/messages?limit=120`)
         .then((data) => {
@@ -70,9 +66,11 @@ export function useAppWebSocket(app, runRegistry, turnRefresh) {
           if (stopped || latest.app.selectedSessionRef.current?.id !== sessionId) {
             return;
           }
-          latest.app.setMessages((current) =>
-            mergeServerMessagesWithLocalState(current, data.messages || [], { activeRuns, preserveLocalRuns })
-          );
+          mergeServerMessagesPreservingLocalRuns({
+            app: latest.app,
+            activeRuns,
+            serverMessages: data.messages || []
+          });
         })
         .catch((error) => {
           console.warn(`[websocket] message refresh failed session=${sessionId}:`, error.message || error);
